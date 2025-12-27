@@ -1,5 +1,5 @@
 // =========================
-// file: backend/function/index.mjs
+// file: backend/function/app.mjs
 // =========================
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
@@ -148,7 +148,6 @@ async function getYdb(context) {
   if (!YDB_DB_NAME) throw new Error("YDB_DB_NAME is required");
 
   // Cloud Functions: context.token is an object: { access_token, expires_in, token_type }
-  // https://yandex.cloud/en/docs/functions/lang/nodejs/context
   const iamToken =
     (context?.token && typeof context.token === "object" ? context.token.access_token : "") ||
     (typeof context?.access_token === "string" ? context.access_token : "") ||
@@ -157,8 +156,6 @@ async function getYdb(context) {
     "";
 
   if (!iamToken) {
-    // Это почти всегда значит: у ВЕРСИИ функции не задан service account
-    // или локальный запуск без YDB_IAM_TOKEN.
     console.log("No IAM token in context. context.token type =", typeof context?.token);
     throw new Error("No IAM token for YDB");
   }
@@ -237,7 +234,7 @@ async function ensureSchema(context) {
       user_id Utf8,
       game_id Utf8,
       started_at Timestamp,
-      finished_at Timestamp,
+      finished_at Optional<Timestamp>,
       reason Utf8,
       summary_json Utf8,
       stars_total Int32,
@@ -254,18 +251,31 @@ async function ensureSchema(context) {
   schemaEnsured = true;
 }
 
-// ---- DB helpers ----
+// ---- DB helpers (ALL PARAM QUERIES USE DECLARE) ----
+
 async function dbGetUserByPhone(context, phone) {
   const y = await getYdb(context);
-  const q = `SELECT user_id, phone, name, created_at FROM ${TP}users WHERE phone = $phone LIMIT 1;`;
-  const [rows] = await y.executeDataQuery(q, { "$phone": phone });
+  const q = `
+    DECLARE $phone AS Utf8;
+    SELECT user_id, phone, name, created_at
+    FROM ${TP}users
+    WHERE phone = $phone
+    LIMIT 1;
+  `;
+  const [rows] = await y.executeDataQuery(q, { $phone: phone });
   return rows?.[0] || null;
 }
 
 async function dbGetUserById(context, userId) {
   const y = await getYdb(context);
-  const q = `SELECT user_id, phone, name, created_at FROM ${TP}users WHERE user_id = $uid LIMIT 1;`;
-  const [rows] = await y.executeDataQuery(q, { "$uid": userId });
+  const q = `
+    DECLARE $uid AS Utf8;
+    SELECT user_id, phone, name, created_at
+    FROM ${TP}users
+    WHERE user_id = $uid
+    LIMIT 1;
+  `;
+  const [rows] = await y.executeDataQuery(q, { $uid: userId });
   return rows?.[0] || null;
 }
 
@@ -273,53 +283,91 @@ async function dbCreateUser(context, phone) {
   const y = await getYdb(context);
   const user = { user_id: uuidv4(), phone, name: "" };
   const q = `
+    DECLARE $uid AS Utf8;
+    DECLARE $phone AS Utf8;
+    DECLARE $name AS Utf8;
+
     UPSERT INTO ${TP}users (user_id, phone, name, created_at)
     VALUES ($uid, $phone, $name, CurrentUtcTimestamp());
   `;
-  await y.executeDataQuery(q, { "$uid": user.user_id, "$phone": phone, "$name": "" });
+  await y.executeDataQuery(q, { $uid: user.user_id, $phone: phone, $name: "" });
   return user;
 }
 
 async function dbUpdateUserName(context, userId, name) {
   const y = await getYdb(context);
-  const q = `UPDATE ${TP}users SET name=$name WHERE user_id=$uid;`;
-  await y.executeDataQuery(q, { "$uid": userId, "$name": name });
+  const q = `
+    DECLARE $uid AS Utf8;
+    DECLARE $name AS Utf8;
+
+    UPDATE ${TP}users
+    SET name = $name
+    WHERE user_id = $uid;
+  `;
+  await y.executeDataQuery(q, { $uid: userId, $name: name });
 }
 
 async function dbPutAuthCode(context, phone, codeHash, expiresAtIso) {
   const y = await getYdb(context);
   const q = `
+    DECLARE $phone AS Utf8;
+    DECLARE $hash AS Utf8;
+    DECLARE $exp AS Utf8;
+
     UPSERT INTO ${TP}auth_codes (phone, code_hash, expires_at, created_at)
     VALUES ($phone, $hash, CAST($exp AS Timestamp), CurrentUtcTimestamp());
   `;
-  await y.executeDataQuery(q, { "$phone": phone, "$hash": codeHash, "$exp": expiresAtIso });
+  await y.executeDataQuery(q, { $phone: phone, $hash: codeHash, $exp: expiresAtIso });
 }
 
 async function dbGetAuthCode(context, phone) {
   const y = await getYdb(context);
-  const q = `SELECT phone, code_hash, expires_at FROM ${TP}auth_codes WHERE phone=$phone LIMIT 1;`;
-  const [rows] = await y.executeDataQuery(q, { "$phone": phone });
+  const q = `
+    DECLARE $phone AS Utf8;
+    SELECT phone, code_hash, expires_at
+    FROM ${TP}auth_codes
+    WHERE phone = $phone
+    LIMIT 1;
+  `;
+  const [rows] = await y.executeDataQuery(q, { $phone: phone });
   return rows?.[0] || null;
 }
 
 async function dbDeleteAuthCode(context, phone) {
   const y = await getYdb(context);
-  const q = `DELETE FROM ${TP}auth_codes WHERE phone=$phone;`;
-  await y.executeDataQuery(q, { "$phone": phone });
+  const q = `
+    DECLARE $phone AS Utf8;
+    DELETE FROM ${TP}auth_codes
+    WHERE phone = $phone;
+  `;
+  await y.executeDataQuery(q, { $phone: phone });
 }
 
 async function dbGetStatsAndSaves(context, userId) {
   const y = await getYdb(context);
 
-  const q1 = `SELECT game_id, last_stars, best_stars FROM ${TP}game_stats WHERE user_id=$uid;`;
-  const [statsRows] = await y.executeDataQuery(q1, { "$uid": userId });
+  const q1 = `
+    DECLARE $uid AS Utf8;
+    SELECT game_id, last_stars, best_stars
+    FROM ${TP}game_stats
+    WHERE user_id = $uid;
+  `;
+  const [statsRows] = await y.executeDataQuery(q1, { $uid: userId });
 
-  const q2 = `SELECT game_id FROM ${TP}saves WHERE user_id=$uid;`;
-  const [saveRows] = await y.executeDataQuery(q2, { "$uid": userId });
+  const q2 = `
+    DECLARE $uid AS Utf8;
+    SELECT game_id
+    FROM ${TP}saves
+    WHERE user_id = $uid;
+  `;
+  const [saveRows] = await y.executeDataQuery(q2, { $uid: userId });
 
   const stats = {};
   for (const r of statsRows || []) {
-    stats[r.game_id] = { last_stars: Number(r.last_stars || 0), best_stars: Number(r.best_stars || 0) };
+    stats[r.game_id] = {
+      last_stars: Number(r.last_stars || 0),
+      best_stars: Number(r.best_stars || 0),
+    };
   }
   const saves = new Set((saveRows || []).map((r) => r.game_id));
   return { stats, saves };
@@ -327,10 +375,19 @@ async function dbGetStatsAndSaves(context, userId) {
 
 async function dbSaveGet(context, userId, gameId) {
   const y = await getYdb(context);
-  const q = `SELECT payload_json, updated_at FROM ${TP}saves WHERE user_id=$uid AND game_id=$gid LIMIT 1;`;
-  const [rows] = await y.executeDataQuery(q, { "$uid": userId, "$gid": gameId });
+  const q = `
+    DECLARE $uid AS Utf8;
+    DECLARE $gid AS Utf8;
+
+    SELECT payload_json, updated_at
+    FROM ${TP}saves
+    WHERE user_id = $uid AND game_id = $gid
+    LIMIT 1;
+  `;
+  const [rows] = await y.executeDataQuery(q, { $uid: userId, $gid: gameId });
   const r = rows?.[0];
   if (!r) return null;
+
   let payload = null;
   try {
     payload = JSON.parse(r.payload_json);
@@ -343,37 +400,67 @@ async function dbSaveGet(context, userId, gameId) {
 async function dbSavePut(context, userId, gameId, payload) {
   const y = await getYdb(context);
   const q = `
+    DECLARE $uid AS Utf8;
+    DECLARE $gid AS Utf8;
+    DECLARE $p AS Utf8;
+
     UPSERT INTO ${TP}saves (user_id, game_id, payload_json, updated_at)
     VALUES ($uid, $gid, $p, CurrentUtcTimestamp());
   `;
-  await y.executeDataQuery(q, { "$uid": userId, "$gid": gameId, "$p": JSON.stringify(payload) });
+  await y.executeDataQuery(q, {
+    $uid: userId,
+    $gid: gameId,
+    $p: JSON.stringify(payload),
+  });
 }
 
 async function dbSaveDelete(context, userId, gameId) {
   const y = await getYdb(context);
-  const q = `DELETE FROM ${TP}saves WHERE user_id=$uid AND game_id=$gid;`;
-  await y.executeDataQuery(q, { "$uid": userId, "$gid": gameId });
+  const q = `
+    DECLARE $uid AS Utf8;
+    DECLARE $gid AS Utf8;
+
+    DELETE FROM ${TP}saves
+    WHERE user_id = $uid AND game_id = $gid;
+  `;
+  await y.executeDataQuery(q, { $uid: userId, $gid: gameId });
 }
 
 async function dbSessionStart(context, sessionId, userId, gameId) {
   const y = await getYdb(context);
   const q = `
+    DECLARE $sid AS Utf8;
+    DECLARE $uid AS Utf8;
+    DECLARE $gid AS Utf8;
+
     UPSERT INTO ${TP}sessions (session_id, user_id, game_id, started_at, reason, summary_json, stars_total, raw_key)
     VALUES ($sid, $uid, $gid, CurrentUtcTimestamp(), "", "{}", 0, "");
   `;
-  await y.executeDataQuery(q, { "$sid": sessionId, "$uid": userId, "$gid": gameId });
+  await y.executeDataQuery(q, { $sid: sessionId, $uid: userId, $gid: gameId });
 }
 
 async function dbSessionGet(context, sessionId) {
   const y = await getYdb(context);
-  const q = `SELECT session_id, user_id, game_id FROM ${TP}sessions WHERE session_id=$sid LIMIT 1;`;
-  const [rows] = await y.executeDataQuery(q, { "$sid": sessionId });
+  const q = `
+    DECLARE $sid AS Utf8;
+    SELECT session_id, user_id, game_id
+    FROM ${TP}sessions
+    WHERE session_id = $sid
+    LIMIT 1;
+  `;
+  const [rows] = await y.executeDataQuery(q, { $sid: sessionId });
   return rows?.[0] || null;
 }
 
 async function dbSessionFinish(context, sessionId, reason, summary, starsTotal, rawKey) {
   const y = await getYdb(context);
   const q = `
+    DECLARE $sid AS Utf8;
+    DECLARE $reason AS Utf8;
+    DECLARE $summary AS Utf8;
+    DECLARE $stars AS Int32;
+    DECLARE $raw AS Utf8;
+
     UPDATE ${TP}sessions
     SET finished_at = CurrentUtcTimestamp(),
         reason = $reason,
@@ -383,31 +470,44 @@ async function dbSessionFinish(context, sessionId, reason, summary, starsTotal, 
     WHERE session_id = $sid;
   `;
   await y.executeDataQuery(q, {
-    "$sid": sessionId,
-    "$reason": reason,
-    "$summary": JSON.stringify(summary || {}),
-    "$stars": Math.floor(starsTotal || 0),
-    "$raw": rawKey || "",
+    $sid: sessionId,
+    $reason: reason,
+    $summary: JSON.stringify(summary || {}),
+    $stars: Math.floor(starsTotal || 0),
+    $raw: rawKey || "",
   });
 }
 
 async function dbUpsertGameStats(context, userId, gameId, starsTotal) {
   const y = await getYdb(context);
 
-  const q1 = `SELECT last_stars, best_stars FROM ${TP}game_stats WHERE user_id=$uid AND game_id=$gid LIMIT 1;`;
-  const [rows] = await y.executeDataQuery(q1, { "$uid": userId, "$gid": gameId });
+  const q1 = `
+    DECLARE $uid AS Utf8;
+    DECLARE $gid AS Utf8;
+
+    SELECT last_stars, best_stars
+    FROM ${TP}game_stats
+    WHERE user_id = $uid AND game_id = $gid
+    LIMIT 1;
+  `;
+  const [rows] = await y.executeDataQuery(q1, { $uid: userId, $gid: gameId });
   const cur = rows?.[0];
   const best = Math.max(Number(cur?.best_stars || 0), Math.floor(starsTotal || 0));
 
   const q2 = `
+    DECLARE $uid AS Utf8;
+    DECLARE $gid AS Utf8;
+    DECLARE $last AS Int32;
+    DECLARE $best AS Int32;
+
     UPSERT INTO ${TP}game_stats (user_id, game_id, last_stars, best_stars, last_updated_at)
     VALUES ($uid, $gid, $last, $best, CurrentUtcTimestamp());
   `;
   await y.executeDataQuery(q2, {
-    "$uid": userId,
-    "$gid": gameId,
-    "$last": Math.floor(starsTotal || 0),
-    "$best": best,
+    $uid: userId,
+    $gid: gameId,
+    $last: Math.floor(starsTotal || 0),
+    $best: best,
   });
 
   return { last_stars: Math.floor(starsTotal || 0), best_stars: best };
@@ -436,7 +536,15 @@ async function uploadRaw(gameId, userId, sessionId, events, summary) {
   const key = `${LOGS_PREFIX}/game=${gameId}/dt=${dt}/user=${userId}/session=${sessionId}.jsonl`;
 
   const lines = [];
-  lines.push(JSON.stringify({ type: "meta", t: Date.now(), game_id: gameId, user_id: userId, session_id: sessionId }));
+  lines.push(
+    JSON.stringify({
+      type: "meta",
+      t: Date.now(),
+      game_id: gameId,
+      user_id: userId,
+      session_id: sessionId,
+    })
+  );
   for (const e of Array.isArray(events) ? events : []) lines.push(JSON.stringify(e));
   lines.push(JSON.stringify({ type: "summary", t: Date.now(), summary: summary || {} }));
 
@@ -468,7 +576,7 @@ export async function handler(event, context) {
       const phone = normalizePhone(body?.phone);
       if (!phone) return resp(400, { ok: false, error: "phone_required" });
 
-      const code = (SMS_MODE === "mock") ? "0000" : String(Math.floor(1000 + Math.random()*9000));
+      const code = SMS_MODE === "mock" ? "0000" : String(Math.floor(1000 + Math.random() * 9000));
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
       await dbPutAuthCode(context, phone, sha256(code), expiresAt);
@@ -478,7 +586,11 @@ export async function handler(event, context) {
         await sendSms(phone, msg);
       } catch (e) {
         console.log("sendSms error:", String(e?.message || e));
-        return resp(500, { ok: false, error: "sms_failed", ...(DEBUG_OTP ? { debug_code: code } : {}) });
+        return resp(500, {
+          ok: false,
+          error: "sms_failed",
+          ...(DEBUG_OTP ? { debug_code: code } : {}),
+        });
       }
 
       return resp(200, { ok: true, ...(DEBUG_OTP ? { debug_code: code } : {}) });
@@ -493,6 +605,7 @@ export async function handler(event, context) {
       const rec = await dbGetAuthCode(context, phone);
       if (!rec) return resp(401, { ok: false, error: "code_invalid" });
 
+      // expires_at may come as Date, string, or sdk-specific type; String() is acceptable here
       const expMs = Date.parse(String(rec.expires_at));
       if (Number.isFinite(expMs) && expMs < Date.now()) {
         await dbDeleteAuthCode(context, phone);
@@ -528,7 +641,10 @@ export async function handler(event, context) {
         best_stars: stats[g.game_id]?.best_stars || 0,
         has_save: saves.has(g.game_id),
       }));
-      return resp(200, { ok: true, user: { user_id: user.user_id, phone: user.phone, name: user.name || "", games } });
+      return resp(200, {
+        ok: true,
+        user: { user_id: user.user_id, phone: user.phone, name: user.name || "", games },
+      });
     }
 
     // /api/me POST (set name)
@@ -544,7 +660,8 @@ export async function handler(event, context) {
       const m = path.match(/^\/api\/games\/([^\/]+)\/save$/);
       if (m) {
         const gameId = decodeURIComponent(m[1]);
-        if (!GAMES.some((g) => g.game_id === gameId)) return resp(404, { ok: false, error: "unknown_game" });
+        if (!GAMES.some((g) => g.game_id === gameId))
+          return resp(404, { ok: false, error: "unknown_game" });
 
         if (method === "GET") {
           const s = await dbSaveGet(context, user.user_id, gameId);
@@ -552,7 +669,8 @@ export async function handler(event, context) {
         }
         if (method === "PUT") {
           const payload = body?.save ?? body?.payload;
-          if (!payload || typeof payload !== "object") return resp(400, { ok: false, error: "save_required" });
+          if (!payload || typeof payload !== "object")
+            return resp(400, { ok: false, error: "save_required" });
           await dbSavePut(context, user.user_id, gameId, payload);
           return resp(200, { ok: true });
         }
@@ -568,7 +686,8 @@ export async function handler(event, context) {
       const m = path.match(/^\/api\/games\/([^\/]+)\/session\/start$/);
       if (method === "POST" && m) {
         const gameId = decodeURIComponent(m[1]);
-        if (!GAMES.some((g) => g.game_id === gameId)) return resp(404, { ok: false, error: "unknown_game" });
+        if (!GAMES.some((g) => g.game_id === gameId))
+          return resp(404, { ok: false, error: "unknown_game" });
 
         const sid = uuidv4();
         await dbSessionStart(context, sid, user.user_id, gameId);
@@ -582,7 +701,8 @@ export async function handler(event, context) {
       if (method === "POST" && m) {
         const gameId = decodeURIComponent(m[1]);
         const sid = decodeURIComponent(m[2]);
-        if (!GAMES.some((g) => g.game_id === gameId)) return resp(404, { ok: false, error: "unknown_game" });
+        if (!GAMES.some((g) => g.game_id === gameId))
+          return resp(404, { ok: false, error: "unknown_game" });
 
         // IMPORTANT: verify the session belongs to this user and this game
         const sess = await dbSessionGet(context, sid);
@@ -608,7 +728,7 @@ export async function handler(event, context) {
 
     return resp(404, { ok: false, error: "not_found" });
   } catch (e) {
-    console.log("handler error:", e);
+    console.log("handler error:", e?.stack || e);
     return resp(500, { ok: false, error: "internal_error" });
   }
 }
