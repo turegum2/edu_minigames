@@ -41,7 +41,7 @@ jobs:
 
       - name: Configure yc CLI with service account key
         env:
-          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON_B64 }}
+          YC_SA_KEY_JSON_B64: ${{ secrets.YC_SA_KEY_JSON_B64 }}
           YC_FOLDER_ID: ${{ vars.YC_FOLDER_ID }}
         run: |
           set -e
