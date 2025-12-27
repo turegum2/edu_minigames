@@ -16,6 +16,6 @@
     "@aws-sdk/client-sns": "^3.637.0",
     "jsonwebtoken": "^9.0.2",
     "uuid": "^10.0.0",
-    "ydb-sdk-lite": "^4.0.0"
+    "ydb-sdk-lite": "^2.1.0"
   }
 }

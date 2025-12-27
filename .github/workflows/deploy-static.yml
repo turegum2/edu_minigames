@@ -4,93 +4,34 @@ on:
   push:
     branches: [ "main" ]
     paths:
-      - "public/**"
-      - "platform/**"
-      - "assets/**"
+      - "frontend/**"
       - ".github/workflows/deploy-static.yml"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install awscli
-        run: |
-          python -m pip install --upgrade pip
-          pip install awscli
+      - name: Configure AWS credentials
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Upload static to Object Storage
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-          FRONT_BUCKET: ${{ secrets.STATIC_BUCKET }}
+          S3_ENDPOINT: ${{ vars.S3_ENDPOINT }}
+          STATIC_BUCKET: ${{ vars.STATIC_BUCKET }}
         run: |
+          set -e
           export AWS_EC2_METADATA_DISABLED=true
 
-          # 1) чистим бакет (для начала так проще)
-          aws s3 rm "s3://$FRONT_BUCKET" --recursive --endpoint-url "$S3_ENDPOINT"
+          echo "S3_ENDPOINT=$S3_ENDPOINT"
+          echo "STATIC_BUCKET=$STATIC_BUCKET"
 
-          # 2) HTML
-          aws s3 cp ./ "s3://$FRONT_BUCKET/" --recursive \
-            --exclude "*" --include "*.html" \
-            --endpoint-url "$S3_ENDPOINT" \
-            --content-type "text/html; charset=utf-8" \
-            --cache-control "no-cache"
+          test -n "$S3_ENDPOINT" || (echo "ERROR: S3_ENDPOINT is empty" && exit 1)
+          test -n "$STATIC_BUCKET" || (echo "ERROR: STATIC_BUCKET is empty" && exit 1)
 
-          # 3) CSS
-          aws s3 cp ./ "s3://$FRONT_BUCKET/" --recursive \
-            --exclude "*" --include "*.css" \
-            --endpoint-url "$S3_ENDPOINT" \
-            --content-type "text/css; charset=utf-8" \
-            --cache-control "public, max-age=31536000, immutable"
-
-          # 4) JS / MJS
-          aws s3 cp ./ "s3://$FRONT_BUCKET/" --recursive \
-            --exclude "*" --include "*.js" --include "*.mjs" \
-            --endpoint-url "$S3_ENDPOINT" \
-            --content-type "application/javascript; charset=utf-8" \
-            --cache-control "public, max-age=31536000, immutable"
-
-          # 5) JSON
-          aws s3 cp ./ "s3://$FRONT_BUCKET/" --recursive \
-            --exclude "*" --include "*.json" \
-            --endpoint-url "$S3_ENDPOINT" \
-            --content-type "application/json; charset=utf-8" \
-            --cache-control "no-cache"
-
-          # 6) Картинки
-          aws s3 cp ./ "s3://$FRONT_BUCKET/" --recursive \
-            --exclude "*" --include "*.png" \
-            --endpoint-url "$S3_ENDPOINT" \
-            --content-type "image/png" \
-            --cache-control "public, max-age=31536000, immutable"
-
-          aws s3 cp ./ "s3://$FRONT_BUCKET/" --recursive \
-            --exclude "*" --include "*.jpg" --include "*.jpeg" \
-            --endpoint-url "$S3_ENDPOINT" \
-            --content-type "image/jpeg" \
-            --cache-control "public, max-age=31536000, immutable"
-
-          aws s3 cp ./ "s3://$FRONT_BUCKET/" --recursive \
-            --exclude "*" --include "*.svg" \
-            --endpoint-url "$S3_ENDPOINT" \
-            --content-type "image/svg+xml" \
-            --cache-control "public, max-age=31536000, immutable"
-
-          # 7) Шрифты
-          aws s3 cp ./ "s3://$FRONT_BUCKET/" --recursive \
-            --exclude "*" --include "*.woff2" \
-            --endpoint-url "$S3_ENDPOINT" \
-            --content-type "font/woff2" \
-            --cache-control "public, max-age=31536000, immutable"
-
-          aws s3 cp ./ "s3://$FRONT_BUCKET/" --recursive \
-            --exclude "*" --include "*.woff" \
-            --endpoint-url "$S3_ENDPOINT" \
-            --content-type "font/woff" \
-            --cache-control "public, max-age=31536000, immutable"
+          aws --endpoint-url "$S3_ENDPOINT" s3 sync ./frontend "s3://$STATIC_BUCKET" --delete

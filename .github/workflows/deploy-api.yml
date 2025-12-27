@@ -5,7 +5,6 @@ on:
     branches: [ "main" ]
     paths:
       - "backend/**"
-      - "openapi.yaml"
       - ".github/workflows/deploy-api.yml"
 
 jobs:
@@ -13,87 +12,110 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
 
       - name: Install backend deps
         working-directory: backend
         run: npm ci
 
-      - name: Build function.zip
+      - name: Build function zip
         run: |
+          set -e
           rm -rf dist-fn function.zip
           mkdir -p dist-fn
-          cp backend/function/index.js backend/function/app.mjs backend/function/package.json dist-fn/
-          cp -r backend/node_modules dist-fn/node_modules
-          (cd dist-fn && zip -r ../function.zip .)
+          cp -r backend/function/* dist-fn/
+          cp backend/package.json backend/package-lock.json dist-fn/
+          cd dist-fn
+          zip -r ../function.zip .
+          cd ..
 
       - name: Install yc CLI
         uses: nightstory/setup-yc@v1
-        with:
-          enable-cache: true
 
-      - name: yc auth as service account
+      - name: Configure yc CLI with service account key
         env:
           YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
-          YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+          YC_FOLDER_ID: ${{ vars.YC_FOLDER_ID }}
         run: |
-          echo "$YC_SA_KEY_JSON" > sa-key.json
+          set -e
+          echo "$YC_SA_KEY_JSON" > yc-key.json
           yc config profile create gha || true
-          yc config profile activate gha
-          yc config set service-account-key sa-key.json
+          yc config set service-account-key yc-key.json
           yc config set folder-id "$YC_FOLDER_ID"
 
-      - name: Deploy Cloud Function (new version)
+      - name: Deploy Cloud Function version
         env:
-          YC_FUNCTION_ID: ${{ secrets.YC_FUNCTION_ID }}
+          YC_FUNCTION_ID: ${{ vars.YC_FUNCTION_ID }}
           YC_FUNCTION_SA_ID: ${{ secrets.YC_FUNCTION_SA_ID }}
 
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           YDB_DB_NAME: ${{ secrets.YDB_DB_NAME }}
-          YDB_TABLE_PREFIX: ${{ secrets.YDB_TABLE_PREFIX }}
-
-          LOGS_BUCKET: ${{ secrets.RAW_BUCKET }}
-          LOGS_PREFIX: ${{ secrets.LOGS_PREFIX }}
 
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
 
-          CNS_ENDPOINT: ${{ secrets.CNS_ENDPOINT }}
-          SMS_MODE: ${{ secrets.SMS_MODE }}
-          DEBUG_OTP: ${{ secrets.DEBUG_OTP }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          S3_ENDPOINT: ${{ vars.S3_ENDPOINT }}
+          RAW_BUCKET: ${{ vars.RAW_BUCKET }}
+          LOGS_PREFIX: ${{ vars.LOGS_PREFIX }}
+          YDB_TABLE_PREFIX: ${{ vars.YDB_TABLE_PREFIX }}
+
+          SMS_MODE: ${{ vars.SMS_MODE }}
+          DEBUG_OTP: ${{ vars.DEBUG_OTP }}
+          CNS_ENDPOINT: ${{ vars.CNS_ENDPOINT }}
         run: |
+          set -e
+
           yc serverless function version create \
             --function-id "$YC_FUNCTION_ID" \
-            --runtime nodejs18 \
+            --runtime nodejs20 \
             --entrypoint index.handler \
-            --memory 512MB \
+            --memory 256m \
             --execution-timeout 10s \
             --service-account-id "$YC_FUNCTION_SA_ID" \
-            --environment JWT_SECRET="$JWT_SECRET",YDB_DB_NAME="$YDB_DB_NAME",YDB_TABLE_PREFIX="$YDB_TABLE_PREFIX",LOGS_BUCKET="$LOGS_BUCKET",LOGS_PREFIX="$LOGS_PREFIX",AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID",AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY",AWS_REGION="$AWS_REGION",S3_ENDPOINT="$S3_ENDPOINT",CNS_ENDPOINT="$CNS_ENDPOINT",SMS_MODE="$SMS_MODE",DEBUG_OTP="$DEBUG_OTP" \
-            --source-path function.zip
+            --source-path function.zip \
+            --environment JWT_SECRET="$JWT_SECRET" \
+            --environment YDB_DB_NAME="$YDB_DB_NAME" \
+            --environment AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
+            --environment AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" \
+            --environment AWS_REGION="$AWS_REGION" \
+            --environment S3_ENDPOINT="$S3_ENDPOINT" \
+            --environment RAW_BUCKET="$RAW_BUCKET" \
+            --environment LOGS_PREFIX="$LOGS_PREFIX" \
+            --environment YDB_TABLE_PREFIX="$YDB_TABLE_PREFIX" \
+            --environment SMS_MODE="$SMS_MODE" \
+            --environment DEBUG_OTP="$DEBUG_OTP" \
+            --environment CNS_ENDPOINT="$CNS_ENDPOINT"
 
-      - name: Render OpenAPI + update API Gateway
+      - name: Render OpenAPI spec (replace placeholders)
         env:
-          YC_API_GW_ID: ${{ secrets.YC_API_GW_ID }}
-          FRONT_BUCKET: ${{ secrets.STATIC_BUCKET }}
-          SERVICE_ACCOUNT_ID: ${{ secrets.YC_GATEWAY_SA_ID }}
-          API_FUNCTION_ID: ${{ secrets.YC_FUNCTION_ID }}
+          STATIC_BUCKET: ${{ vars.STATIC_BUCKET }}
+          YC_FUNCTION_ID: ${{ vars.YC_FUNCTION_ID }}
+          YC_GATEWAY_SA_ID: ${{ secrets.YC_GATEWAY_SA_ID }}
         run: |
-          python - <<'PY'
-          import os, pathlib
-          p = pathlib.Path("openapi.yaml")
-          text = p.read_text(encoding="utf-8")
-          for k in ["FRONT_BUCKET","SERVICE_ACCOUNT_ID","API_FUNCTION_ID"]:
-            text = text.replace("${%s}" % k, os.environ[k])
-          pathlib.Path("openapi.rendered.yaml").write_text(text, encoding="utf-8")
+          set -e
+          python3 - <<'PY'
+          import os
+          p = "backend/openapi.yaml"
+          s = open(p, "r", encoding="utf-8").read()
+          s = s.replace("${FRONT_BUCKET}", os.environ["STATIC_BUCKET"])
+          s = s.replace("${API_FUNCTION_ID}", os.environ["YC_FUNCTION_ID"])
+          s = s.replace("${SERVICE_ACCOUNT_ID}", os.environ["YC_GATEWAY_SA_ID"])
+          open("openapi.rendered.yaml", "w", encoding="utf-8").write(s)
           PY
 
-          yc serverless api-gateway update --id "$YC_API_GW_ID" --spec=openapi.rendered.yaml
+      - name: Update API Gateway spec
+        env:
+          YC_API_GW_ID: ${{ vars.YC_API_GW_ID }}
+        run: |
+          set -e
+          yc serverless api-gateway update \
+            --id "$YC_API_GW_ID" \
+            --spec=openapi.rendered.yaml

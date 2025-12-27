@@ -22,7 +22,8 @@ const JWT_SECRET = process.env.JWT_SECRET || "";
 const YDB_DB_NAME = process.env.YDB_DB_NAME || "";
 const TP = (process.env.YDB_TABLE_PREFIX || "").trim();
 
-const LOGS_BUCKET = process.env.LOGS_BUCKET || "";
+// Accept both names: LOGS_BUCKET (old) and RAW_BUCKET (new, used in GitHub vars)
+const LOGS_BUCKET = process.env.LOGS_BUCKET || process.env.RAW_BUCKET || "";
 const LOGS_PREFIX = (process.env.LOGS_PREFIX || "raw").replace(/\/+$/, "");
 
 const S3_ENDPOINT = process.env.S3_ENDPOINT || "https://storage.yandexcloud.net";
@@ -146,10 +147,12 @@ async function getYdb(context) {
   if (ydb) return ydb;
   if (!YDB_DB_NAME) throw new Error("YDB_DB_NAME is required");
 
-  // In YC Cloud Functions, context.token is IAM token when invoked via API Gateway with a service account
+  // IAM token may appear as context.access_token or context.token (depends on runtime/invocation).
+  // Optional fallback via env for local/dev runs.
+  const iamToken = context?.access_token || context?.token || process.env.YDB_IAM_TOKEN || "";
   ydb = new Ydb({
     dbName: YDB_DB_NAME,
-    authToken: context?.token ? `Bearer ${context.token}` : undefined,
+    authToken: iamToken ? `Bearer ${iamToken}` : undefined,
   });
   return ydb;
 }
