@@ -17,7 +17,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: backend/package-lock.json
 
@@ -83,7 +83,7 @@ jobs:
 
           yc serverless function version create \
             --function-id "$YC_FUNCTION_ID" \
-            --runtime nodejs20 \
+            --runtime nodejs22 \
             --entrypoint index.handler \
             --memory 256m \
             --execution-timeout 10s \
