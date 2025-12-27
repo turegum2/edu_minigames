@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Учебные мини-игры</title>
+  <style>
+    :root{
+      --bg1:#0b1020; --bg2:#0b1a2a; --card:#111a2e; --muted:#93a4c7; --text:#e8eeff;
+      --accent:#5dd6ff; --good:#59f3a6; --bad:#ff6b6b; --line:rgba(255,255,255,.12);
+      --btn:#1b2a4b; --btn2:#163056;
+    }
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;color:var(--text);}
+    body{
+      background: radial-gradient(1000px 700px at 10% 10%, #17295a 0%, transparent 60%),
+                  radial-gradient(900px 600px at 90% 30%, #0f4a5f 0%, transparent 55%),
+                  linear-gradient(180deg, var(--bg1), var(--bg2));
+      display:grid; place-items:center; padding:18px; box-sizing:border-box;
+    }
+    .wrap{width:min(1100px,100%); display:grid; gap:14px;}
+    .top{display:flex; gap:12px; align-items:center; justify-content:space-between;}
+    .brand{display:flex; gap:10px; align-items:center;}
+    .logo{width:44px;height:44px;border-radius:14px;background:linear-gradient(135deg,#2dd4ff,#60ffa7); box-shadow:0 10px 40px rgba(0,0,0,.35);}
+    .title{font-size:18px;font-weight:750;letter-spacing:.2px;margin:0;}
+    .sub{margin:0;color:var(--muted); font-size:13px}
+    .card{
+      background:rgba(17,26,46,.78);
+      border:1px solid var(--line);
+      border-radius:18px;
+      box-shadow:0 18px 60px rgba(0,0,0,.35);
+      backdrop-filter: blur(10px);
+      overflow:hidden;
+    }
+    .card .hd{padding:14px 16px;border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:10px;}
+    .card .bd{padding:16px;}
+    .grid{display:grid; grid-template-columns: 1.1fr .9fr; gap:14px;}
+    @media (max-width: 900px){ .grid{grid-template-columns:1fr;} }
+
+    .row{display:flex; gap:10px; align-items:center;}
+    .pill{
+      font-size:12px; color:var(--muted); border:1px solid var(--line);
+      padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.04);
+      user-select:none;
+    }
+
+    input,button{
+      font:inherit; border-radius:12px; border:1px solid var(--line);
+      padding:10px 12px; background:rgba(255,255,255,.04); color:var(--text);
+      outline:none;
+    }
+    input{width:100%}
+    button{
+      background:linear-gradient(180deg, rgba(93,214,255,.20), rgba(93,214,255,.06));
+      cursor:pointer; border:1px solid rgba(93,214,255,.38);
+    }
+    button.secondary{
+      background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
+      border:1px solid var(--line);
+    }
+    button:disabled{opacity:.55; cursor:not-allowed}
+    .muted{color:var(--muted); font-size:13px; line-height:1.4}
+    .err{color:var(--bad); font-size:13px}
+    .ok{color:var(--good); font-size:13px}
+
+    .games{display:grid; gap:10px;}
+    .game{
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.03);
+      border-radius:14px;
+      padding:12px;
+      display:grid;
+      grid-template-columns: 1fr auto;
+      gap:10px;
+      align-items:center;
+    }
+    .gname{font-weight:700}
+    .gmeta{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end}
+    .stars{letter-spacing:.5px}
+    .actions{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end}
+    .small{padding:8px 10px; border-radius:12px; font-size:13px;}
+    .sep{height:1px;background:var(--line); margin:12px 0;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="brand">
+        <div class="logo"></div>
+        <div>
+          <p class="title">Учебные мини-игры</p>
+          <p class="sub">Авторизация по SMS • сохранения • статистика</p>
+        </div>
+      </div>
+      <div class="row">
+        <span class="pill" id="envPill">локально</span>
+        <button class="secondary" id="logoutBtn" style="display:none;">Выйти</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card" id="authCard">
+        <div class="hd">
+          <div class="row">
+            <strong>Вход</strong>
+            <span class="pill">SMS</span>
+          </div>
+          <span class="pill" id="authStatePill">не авторизован</span>
+        </div>
+        <div class="bd">
+          <div id="authStepPhone">
+            <div class="muted">Введите номер телефона. На него придёт код подтверждения.</div>
+            <div style="height:10px"></div>
+            <div class="row">
+              <input id="phoneInput" placeholder="+7XXXXXXXXXX" autocomplete="tel" />
+              <button id="sendCodeBtn">Получить код</button>
+            </div>
+            <div style="height:8px"></div>
+            <div class="muted" id="debugCodeHint" style="display:none;"></div>
+            <div class="err" id="phoneErr"></div>
+          </div>
+
+          <div id="authStepCode" style="display:none;">
+            <div class="muted">Введите код из SMS.</div>
+            <div style="height:10px"></div>
+            <div class="row">
+              <input id="codeInput" placeholder="0000" autocomplete="one-time-code" />
+              <button id="verifyBtn">Подтвердить</button>
+            </div>
+            <div style="height:8px"></div>
+            <button class="secondary" id="backBtn">← Назад</button>
+            <div class="err" id="codeErr"></div>
+          </div>
+
+          <div id="profileStep" style="display:none;">
+            <div class="muted">Первый вход: укажите имя (можно позже изменить).</div>
+            <div style="height:10px"></div>
+            <div class="row">
+              <input id="nameInput" placeholder="Имя" autocomplete="name" />
+              <button id="saveNameBtn">Сохранить</button>
+            </div>
+            <div style="height:8px"></div>
+            <div class="ok" id="nameOk"></div>
+            <div class="err" id="nameErr"></div>
+          </div>
+
+          <div class="sep"></div>
+          <div class="muted">
+            Подсказка: игры работают по URL <code>/games/&lt;id&gt;.html?mode=new|load</code>. Платформа добавляет «Сохранить/Выйти» прямо в игре.
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="cabCard" style="display:none;">
+        <div class="hd">
+          <div class="row">
+            <strong>Личный кабинет</strong>
+            <span class="pill" id="helloPill"></span>
+          </div>
+          <span class="pill" id="userPill"></span>
+        </div>
+        <div class="bd">
+          <div class="games" id="gamesList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/platform/client.js"></script>
+  <script>
+    // ---------- UI helpers ----------
+    const $ = (id)=>document.getElementById(id);
+    const envPill = $("envPill");
+    const authCard = $("authCard");
+    const cabCard = $("cabCard");
+    const logoutBtn = $("logoutBtn");
+
+    const phoneInput = $("phoneInput");
+    const sendCodeBtn = $("sendCodeBtn");
+    const phoneErr = $("phoneErr");
+    const debugCodeHint = $("debugCodeHint");
+
+    const authStepPhone = $("authStepPhone");
+    const authStepCode = $("authStepCode");
+    const codeInput = $("codeInput");
+    const verifyBtn = $("verifyBtn");
+    const backBtn = $("backBtn");
+    const codeErr = $("codeErr");
+
+    const profileStep = $("profileStep");
+    const nameInput = $("nameInput");
+    const saveNameBtn = $("saveNameBtn");
+    const nameErr = $("nameErr");
+    const nameOk = $("nameOk");
+
+    const authStatePill = $("authStatePill");
+    const helloPill = $("helloPill");
+    const userPill = $("userPill");
+    const gamesList = $("gamesList");
+
+    const nextUrl = new URL(location.href).searchParams.get("next");
+
+    function fmtStars(n){
+      const x = Math.max(0, Number.isFinite(n)? n : 0);
+      return "★".repeat(Math.min(5, x)) + "☆".repeat(Math.max(0, 5-x));
+    }
+
+    function showStep(step){
+      authStepPhone.style.display = (step==="phone") ? "" : "none";
+      authStepCode.style.display  = (step==="code")  ? "" : "none";
+      profileStep.style.display   = (step==="profile") ? "" : "none";
+      phoneErr.textContent = "";
+      codeErr.textContent = "";
+      nameErr.textContent = "";
+      nameOk.textContent = "";
+      debugCodeHint.style.display = "none";
+    }
+
+    function setAuthedUI(me){
+      authStatePill.textContent = "авторизован";
+      logoutBtn.style.display = "";
+      cabCard.style.display = "";
+      helloPill.textContent = me.name ? `Привет, ${me.name}` : `Привет!`;
+      userPill.textContent = me.phone;
+      renderGames(me.games || []);
+    }
+
+    function setAnonUI(){
+      authStatePill.textContent = "не авторизован";
+      logoutBtn.style.display = "none";
+      cabCard.style.display = "none";
+      showStep("phone");
+    }
+
+    function renderGames(games){
+      gamesList.innerHTML = "";
+      for(const g of games){
+        const wrap = document.createElement("div");
+        wrap.className = "game";
+        wrap.innerHTML = `
+          <div>
+            <div class="gname">${g.title}</div>
+            <div class="muted" style="margin-top:4px;">
+              Последний: <span class="stars">${fmtStars(g.last_stars||0)}</span>
+              &nbsp;•&nbsp; Рекорд: <span class="stars">${fmtStars(g.best_stars||0)}</span>
+              ${g.has_save ? "&nbsp;•&nbsp; Есть сохранение" : ""}
+            </div>
+          </div>
+          <div class="actions">
+            <button class="small" data-act="new" data-id="${g.game_id}">Играть заново</button>
+            <button class="small secondary" data-act="load" data-id="${g.game_id}" ${g.has_save ? "" : "disabled"}>Загрузить</button>
+          </div>
+        `;
+        wrap.addEventListener("click", (e)=>{
+          const btn = e.target.closest("button");
+          if(!btn) return;
+          const gameId = btn.getAttribute("data-id");
+          const act = btn.getAttribute("data-act");
+          const url = `/games/${gameId}.html?mode=${act==="load" ? "load" : "new"}`;
+          location.href = url;
+        });
+        gamesList.appendChild(wrap);
+      }
+    }
+
+    // ---------- Auth flow ----------
+    async function refreshMe(){
+      const me = await PlatformApi.meGet();
+      if(!me?.ok) return null;
+      return me;
+    }
+
+    async function boot(){
+      envPill.textContent = (location.host.includes("localhost") || location.host.includes("127.0.0.1")) ? "локально" : "облако";
+      const me = await refreshMe();
+      if(me){
+        // если имя отсутствует — попросим имя
+        if(!me.user?.name){
+          setAuthedUI(me.user);
+          showStep("profile");
+        } else {
+          setAuthedUI(me.user);
+          showStep("phone"); // скрыто карточкой кабинета
+          if(nextUrl){
+            try{
+              const u = new URL(nextUrl, location.origin);
+              if(u.origin === location.origin) location.href = u.pathname + u.search;
+            }catch(_){}
+          }
+        }
+      } else {
+        setAnonUI();
+      }
+    }
+
+    sendCodeBtn.onclick = async ()=>{
+      phoneErr.textContent = "";
+      debugCodeHint.style.display = "none";
+      const phone = phoneInput.value.trim();
+      if(!phone) { phoneErr.textContent="Введите номер телефона."; return; }
+      sendCodeBtn.disabled = true;
+      try{
+        const res = await PlatformApi.authStart(phone);
+        if(!res.ok){
+          phoneErr.textContent = res.error || "Не удалось отправить код.";
+          return;
+        }
+        // локальный dev сервер может вернуть debug_code
+        if(res.debug_code){
+          debugCodeHint.style.display = "";
+          debugCodeHint.textContent = `Локальный режим: код = ${res.debug_code}`;
+        }
+        showStep("code");
+        codeInput.focus();
+      } finally {
+        sendCodeBtn.disabled = false;
+      }
+    };
+
+    backBtn.onclick = ()=> showStep("phone");
+
+    verifyBtn.onclick = async ()=>{
+      codeErr.textContent = "";
+      const phone = phoneInput.value.trim();
+      const code = codeInput.value.trim();
+      if(!code){ codeErr.textContent="Введите код."; return; }
+      verifyBtn.disabled = true;
+      try{
+        const res = await PlatformApi.authVerify(phone, code);
+        if(!res.ok){
+          codeErr.textContent = res.error || "Неверный код.";
+          return;
+        }
+        PlatformApi.setToken(res.token);
+        const me = await refreshMe();
+        if(!me){ codeErr.textContent="Не удалось получить профиль."; return; }
+
+        setAuthedUI(me.user);
+
+        if(!me.user.name){
+          showStep("profile");
+          nameInput.focus();
+        } else {
+          if(nextUrl){
+            try{
+              const u = new URL(nextUrl, location.origin);
+              if(u.origin === location.origin) location.href = u.pathname + u.search;
+            }catch(_){}
+          }
+        }
+      } finally {
+        verifyBtn.disabled = false;
+      }
+    };
+
+    saveNameBtn.onclick = async ()=>{
+      nameErr.textContent=""; nameOk.textContent="";
+      const name = nameInput.value.trim();
+      if(!name){ nameErr.textContent="Введите имя."; return; }
+      saveNameBtn.disabled = true;
+      try{
+        const res = await PlatformApi.meSetName(name);
+        if(!res.ok){ nameErr.textContent = res.error || "Не удалось сохранить имя."; return; }
+        nameOk.textContent = "Сохранено.";
+        const me = await refreshMe();
+        if(me) setAuthedUI(me.user);
+      } finally {
+        saveNameBtn.disabled = false;
+      }
+    };
+
+    logoutBtn.onclick = ()=>{
+      PlatformApi.clearToken();
+      location.href = "/";
+    };
+
+    boot();
+  </script>
+</body>
+</html>

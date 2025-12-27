@@ -1,0 +1,21 @@
+{
+  "name": "mini-games-backend",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Local dev server + Cloud Function handler (YDB + Object Storage + CNS SMS).",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "node local/dev-server.mjs",
+    "start": "node local/dev-server.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.637.0",
+    "@aws-sdk/client-sns": "^3.637.0",
+    "jsonwebtoken": "^9.0.2",
+    "uuid": "^10.0.0",
+    "ydb-sdk-lite": "^4.0.0"
+  }
+}

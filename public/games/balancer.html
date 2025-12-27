@@ -1,0 +1,1968 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Балансир: моменты сил</title>
+  <link rel="stylesheet" href="/assets/fonts/nunito/wght.css">
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body{
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      display: grid;
+      place-items: center;
+      padding: 14px;
+      box-sizing: border-box;
+      font-family: "Nunito Variable", sans-serif;
+    }
+    canvas{
+      width: min(1000px, calc(100vw - 28px));
+      aspect-ratio: 1000 / 600;
+      border-radius: 20px;
+      box-shadow: 
+        0 20px 60px rgba(0,0,0,0.5),
+        0 0 40px rgba(255, 193, 7, 0.15),
+        inset 0 0 80px rgba(255,255,255,0.05);
+      outline: 2px solid rgba(255,255,255,0.1);
+      display: block;
+      touch-action: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game" width="1000" height="600" aria-label="Балансир: моменты сил"></canvas>
+
+<script>
+(() => {
+  "use strict";
+  window.__GAME_ID__ = "balancer";
+  // ---------------------------- КОНСТАНТЫ ----------------------------
+  const TITLE = "Балансир: моменты сил";
+  const WIDTH = 1000, HEIGHT = 600;
+
+  const UI_FS = 18;
+  const UI_LINE = 24;
+  const PROMPT_FS = 26;
+  const FINAL_TITLE_FS = 32;
+  const FINAL_TEXT_FS = 20;
+
+  const GROUND_Y = HEIGHT - 80;
+  const LEVER_CENTER_X = Math.floor(WIDTH / 2);
+  const LEVER_CENTER_Y = GROUND_Y - 120;
+  const LEVER_LENGTH = 600;
+  const LEVER_MARKS = 10;
+  const SCALE = Math.floor(LEVER_LENGTH / (LEVER_MARKS * 2));
+  const MAX_ANGLE_DEG = 35;
+  const MAX_ANGLE_RAD = MAX_ANGLE_DEG * Math.PI / 180;
+
+  const LEVER_MASS = 2.0;
+  const SPRING_K = 4.5;
+  const DAMPING = 0.92;
+
+  const ATTEMPT_LIMIT = 5;
+
+  // ---------------------------- ЦВЕТОВАЯ ПАЛИТРА ----------------------------
+  const COLORS = {
+    // Фон
+    skyTop: '#E3F2FD',
+    skyMiddle: '#BBDEFB',
+    skyBottom: '#90CAF9',
+    
+    // Земля
+    groundTop: '#8D6E63',
+    groundMiddle: '#6D4C41',
+    groundBottom: '#4E342E',
+    grassTop: '#7CB342',
+    grassBottom: '#558B2F',
+    
+    // Панели
+    panelBg: 'rgba(15, 25, 45, 0.92)',
+    panelBorder: 'rgba(255, 193, 7, 0.4)',
+    panelGlow: 'rgba(255, 193, 7, 0.15)',
+    panelLight: 'rgba(255, 255, 255, 0.95)',
+    panelLightBorder: 'rgba(100, 120, 150, 0.3)',
+    
+    // Тексты
+    textPrimary: '#FFFFFF',
+    textSecondary: '#B0BEC5',
+    textDark: '#263238',
+    textAccent: '#FFC107',
+    textGold: '#FFD54F',
+    textGreen: '#81C784',
+    textOrange: '#FFB74D',
+    textBlue: '#4FC3F7',
+    textRed: '#EF5350',
+    
+    // Рычаг
+    leverWood: '#8D6E63',
+    leverWoodDark: '#5D4037',
+    leverWoodLight: '#A1887F',
+    leverMetal: '#607D8B',
+    leverMetalLight: '#90A4AE',
+    
+    // Опора
+    supportBase: '#455A64',
+    supportTop: '#607D8B',
+    supportAccent: '#FFC107',
+    
+    // Грузы
+    weightGreen: ['#81C784', '#4CAF50', '#2E7D32'],
+    weightBlue: ['#64B5F6', '#2196F3', '#1565C0'],
+    weightRed: ['#EF5350', '#E53935', '#B71C1C'],
+    weightPurple: ['#BA68C8', '#9C27B0', '#6A1B9A'],
+    weightGray: ['#90A4AE', '#607D8B', '#37474F'],
+    
+    // Звёзды
+    starGold: '#FFD700',
+    starGoldDark: '#FFA000',
+    starEmpty: '#546E7A',
+    
+    // Оверлеи
+    successBg: 'rgba(46, 125, 50, 0.95)',
+    successBorder: '#81C784',
+    failBg: 'rgba(198, 40, 40, 0.95)',
+    failBorder: '#EF5350',
+    infoBg: 'rgba(25, 118, 210, 0.95)',
+    infoBorder: '#64B5F6',
+    mysteryBg: 'rgba(74, 20, 140, 0.95)',
+    mysteryBorder: '#CE93D8',
+    
+    // Запретные зоны
+    forbidden: '#EF5350',
+    forbiddenLight: '#FFCDD2',
+    
+    // Индикатор баланса
+    balanceGood: '#4CAF50',
+    balanceBad: '#FF9800',
+    balanceScale: '#E0E0E0',
+  };
+
+  // ---------------------------- ДАННЫЕ: ГРУЗЫ ----------------------------
+  const WEIGHTS = new Map(Object.entries({
+    "small":  {mass: 1.0,  colors: COLORS.weightGreen, size: 22, title: "1"},
+    "medium": {mass: 2.0,  colors: COLORS.weightBlue, size: 27, title: "2"},
+    "large":  {mass: 5.0,  colors: COLORS.weightRed, size: 32, title: "5"},
+    "huge":   {mass: 10.0, colors: COLORS.weightPurple, size: 38, title: "10"},
+    "mystery":{mass: "?",  colors: COLORS.weightGray, size: 27, title: "?"},
+  }));
+
+  // ---------------------------- УРОВНИ ----------------------------
+  const LEVELS = [
+    {
+      name: "Первое равновесие",
+      type: "balance",
+      axis_position: 0,
+      available_weights: [["small", 4], ["medium", 2]],
+      preset_weights: [[2.0, -5]],
+      target_angle: 0,
+      hint: "Поставь груз массой 2 на отметку +5",
+    },
+    {
+      name: "Выигрыш плечом",
+      type: "balance",
+      axis_position: 0,
+      available_weights: [["small", 3], ["medium", 1], ["large", 1]],
+      preset_weights: [[5.0, -2]],
+      target_angle: 0,
+      hint: "Больший момент можно сделать меньшим грузом дальше от оси",
+    },
+    {
+      name: "Смещённые условия",
+      type: "balance",
+      axis_position: 1,
+      available_weights: [["small", 4], ["medium", 2]],
+      preset_weights: [[2.0, -3]],
+      target_angle: 0,
+      hint: "Ось смещена: учитывай вес самого рычага",
+    },
+    {
+      name: "Наклонный мир",
+      type: "angle",
+      axis_position: 0,
+      target_angle: 10,
+      available_weights: [["small", 3], ["medium", 2], ["large", 1]],
+      max_moves: 4,
+      hint: "Сделай наклон около +10° (правый край вниз)",
+    },
+    {
+      name: "Точный минус 15°",
+      type: "angle",
+      axis_position: -1,
+      target_angle: -15,
+      available_weights: [["small", 3], ["medium", 3], ["large", 1]],
+      max_moves: 5,
+      hint: "Наклон -15° (левый край вниз)",
+    },
+    {
+      name: "Мало ходов",
+      type: "angle",
+      axis_position: 0,
+      target_angle: 7,
+      available_weights: [["small", 2], ["medium", 2], ["large", 1]],
+      max_moves: 3,
+      hint: "Попробуй решить за 3 хода",
+    },
+    {
+      name: "Загадочный груз",
+      type: "mystery",
+      axis_position: 0,
+      mystery_weight_pos: -7,
+      mystery_weight_mass: 4,
+      available_weights: [["small", 5], ["medium", 3]],
+      hint: "Уравновесь, потом введи массу '?'",
+    },
+    {
+      name: "Неизвестный потяжелее",
+      type: "mystery",
+      axis_position: 1,
+      mystery_weight_pos: +6,
+      mystery_weight_mass: 6,
+      available_weights: [["small", 6], ["medium", 3]],
+      hint: "Ввод — цифры, Enter — проверить",
+    },
+    {
+      name: "С подвохом",
+      type: "mystery",
+      axis_position: -2,
+      mystery_weight_pos: -3,
+      mystery_weight_mass: 2,
+      available_weights: [["small", 5], ["medium", 2], ["large", 1]],
+      hint: "Ось смещена, рычаг сам создаёт момент",
+    },
+    {
+      name: "Двойной баланс",
+      type: "complex",
+      axis_position: -3,
+      available_weights: [["small", 6], ["medium", 3], ["large", 1]],
+      forbidden_zones: [[-6, -4]],
+      target_angle: 0,
+      hint: "Центральные отметки запрещены. Уравновесь.",
+    },
+    {
+      name: "Ограниченная полка",
+      type: "complex",
+      axis_position: 0,
+      available_weights: [["small", 3], ["medium", 2], ["huge", 1]],
+      forbidden_zones: [[-3, -2]],
+      target_angle: -8,
+      hint: "Добейся -8°",
+    },
+    {
+      name: "Финальная загадка",
+      type: "mystery",
+      axis_position: 0,
+      mystery_weight_pos: +6,
+      mystery_weight_mass: 5.0,
+      available_weights: [["small", 3], ["medium", 2]],
+      forbidden_zones: [[-10, -9]],
+      hint: "Уравновесь с учётом запретных точек и введи массу '?'.",
+    },
+  ];
+
+  // ---------------------------- СОСТОЯНИЕ ИГРЫ ----------------------------
+  let state = "intro";
+  let level_index = 0;
+  let attempts = 0;
+  let moves_used = 0;
+  let start_time = performance.now();
+  let show_hint = false;
+  let hint_used_this_level = false;
+  let animTime = 0;
+
+  let stars_per_level = new Array(LEVELS.length).fill(0);
+
+  let inventory = new Map();
+  let placed = new Map();
+  let drag = null;
+  let mouse_pos = {x: 0, y: 0};
+
+  let THEORY_SCROLL = 0;
+  let INTRO_SCROLL = 0;
+  let PREV_STATE = null;
+
+  let mystery_input = "";
+  let mystery_error_until = 0;
+
+  // ---------------------------- АНИМАЦИЯ РЫЧАГА ----------------------------
+  class LeverAnim {
+    constructor(){ this.angle = 0.0; this.ang_vel = 0.0; }
+    update(target_angle, dt){
+      const spring = (target_angle - this.angle) * SPRING_K;
+      this.ang_vel += spring * dt;
+      this.ang_vel *= DAMPING;
+      this.angle += this.ang_vel * dt;
+    }
+  }
+  const lever = new LeverAnim();
+
+  // ---------------------------- ВСПОМОГАТЕЛЬНЫЕ ----------------------------
+  const clamp = (v, vmin, vmax) => Math.max(vmin, Math.min(vmax, v));
+  const current_level = () => LEVELS[level_index];
+  const deg2rad = d => d * Math.PI / 180;
+
+  function reset_level(){
+    const lvl = current_level();
+    inventory = new Map();
+    for (const [k, v] of (lvl.available_weights || [])){
+      inventory.set(k, Math.trunc(v));
+    }
+    placed = new Map();
+    drag = null;
+    attempts = 0;
+    moves_used = 0;
+    start_time = performance.now();
+    state = "play";
+    show_hint = false;
+    hint_used_this_level = false;
+
+    for (const [m, pos] of (lvl.preset_weights || [])){
+      placed.set(pos, {type: "custom", mass: Number(m), size: 26, colors: COLORS.weightGray});
+    }
+  }
+
+  reset_level();
+  state = "intro";
+
+  // ---------------------------- ФИЗИКА МОМЕНТОВ ----------------------------
+  function net_moment_and_angle(){
+    const lvl = current_level();
+    const axis = (lvl.axis_position ?? 0) | 0;
+
+    let left_known = 0.0, right_known = 0.0;
+    for (const [pos, w] of placed.entries()){
+      const m = w.mass;
+      if (m === "?") continue;
+      const arm = pos - axis;
+      if (arm < 0) left_known += Math.abs(arm) * Number(m);
+      else right_known += Math.abs(arm) * Number(m);
+    }
+
+    let left_total = left_known, right_total = right_known;
+
+    if (lvl.type === "mystery"){
+      const pos_q = (lvl.mystery_weight_pos ?? 0) | 0;
+      const m_q = Number(lvl.mystery_weight_mass ?? 0);
+      const arm_q = pos_q - axis;
+      if (arm_q < 0) left_total += Math.abs(arm_q) * m_q;
+      else right_total += Math.abs(arm_q) * m_q;
+    }
+
+    const lever_moment = (-axis) * LEVER_MASS;
+    const net = (right_total - left_total) + lever_moment;
+
+    const K = 0.065;
+    const target_angle = clamp(net * K, -MAX_ANGLE_RAD, MAX_ANGLE_RAD);
+    return {net, left_known, right_known, target_angle};
+  }
+
+  // ---------------------------- ЛОГИКА ВЫПОЛНЕНИЯ ----------------------------
+  const WIN_EPS_BAL = (2 * Math.PI / 180);
+  const WIN_EPS_ANG = (3 * Math.PI / 180);
+
+  function check_victory(){
+    const lvl = current_level();
+    const {target_angle: tgt} = net_moment_and_angle();
+
+    if (lvl.type === "balance"){
+      if (Math.abs(tgt - 0.0) < WIN_EPS_BAL) state = "win";
+    } else if (lvl.type === "angle"){
+      const desired = (Number(lvl.target_angle ?? 0)) * Math.PI / 180;
+      if (Math.abs(tgt - desired) < WIN_EPS_ANG) state = "win";
+    } else if (lvl.type === "mystery"){
+      if (Math.abs(tgt) < WIN_EPS_BAL) state = "input_mystery";
+    } else if (lvl.type === "complex"){
+      const desired = (Number(lvl.target_angle ?? 0)) * Math.PI / 180;
+      if (Math.abs(tgt - desired) < WIN_EPS_BAL) state = "win";
+    }
+  }
+
+  function calculate_stars(level_type, attempts_, moves_used_, time_spent){
+    if (attempts_ === 1 && moves_used_ <= 3) return 3;
+    if (attempts_ <= 2 && moves_used_ <= 5) return 2;
+    return 1;
+  }
+
+  function is_forbidden(pos_index){
+    const zones = current_level().forbidden_zones || [];
+    for (const [lo, hi] of zones){
+      if (lo <= pos_index && pos_index <= hi) return true;
+    }
+    return false;
+  }
+
+  function total_stars(){
+    return stars_per_level.reduce((a,b)=>a+b, 0);
+  }
+
+  function grade_comment(total){
+    const max = LEVELS.length * 3;
+    if (total >= LEVELS.length * 2.5) return "Отлично! Ты настоящий мастер рычагов!";
+    if (total >= LEVELS.length * 1.7) return "Хорошая работа! Ещё немного практики!";
+    if (total >= LEVELS.length * 1.0) return "Неплохо! Потренируйся с моментами сил.";
+    return "Начни с теории (клавиша T) и первых уровней!";
+  }
+
+  // ---------------------------- ГЕОМЕТРИЯ ----------------------------
+  function beam_endpoints(angle_rad){
+    const half = LEVER_LENGTH / 2;
+    const dx = Math.cos(angle_rad) * half;
+    const dy = Math.sin(angle_rad) * half;
+    return [{x: LEVER_CENTER_X - dx, y: LEVER_CENTER_Y - dy},
+            {x: LEVER_CENTER_X + dx, y: LEVER_CENTER_Y + dy}];
+  }
+
+  function mark_pos(index, angle_rad){
+    const d = index * SCALE;
+    const dx = Math.cos(angle_rad) * d;
+    const dy = Math.sin(angle_rad) * d;
+    return {x: LEVER_CENTER_X + dx, y: LEVER_CENTER_Y + dy};
+  }
+
+  function nearest_mark_to_point(pt){
+    const a = lever.angle;
+    let best_i = null;
+    let best_d2 = 1e18;
+    for (let i = -LEVER_MARKS; i <= LEVER_MARKS; i++){
+      const p = mark_pos(i, a);
+      const dx = p.x - pt.x;
+      const dy = p.y - pt.y;
+      const d2 = dx*dx + dy*dy;
+      if (d2 < best_d2){
+        best_d2 = d2;
+        best_i = i;
+      }
+    }
+    return {index: best_i, dist: Math.sqrt(best_d2)};
+  }
+
+  function storage_hit(pt){
+    let x = 16;
+    for (const name of inventory.keys()){
+      const box = {x:x, y:28, w:110, h:50};
+      if (pt.x >= box.x && pt.x <= box.x+box.w && pt.y >= box.y && pt.y <= box.y+box.h){
+        return name;
+      }
+      x += 120;
+    }
+    return null;
+  }
+
+  // ---------------------------- CANVAS ----------------------------
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  document.title = TITLE;
+
+  function resizeCanvasToCSS(){
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const realW = Math.max(1, Math.round(rect.width * dpr));
+    const realH = Math.max(1, Math.round(rect.height * dpr));
+    if (canvas.width !== realW || canvas.height !== realH){
+      canvas.width = realW;
+      canvas.height = realH;
+    }
+    ctx.setTransform(realW / WIDTH, 0, 0, realH / HEIGHT, 0, 0);
+  }
+  window.addEventListener("resize", resizeCanvasToCSS);
+  resizeCanvasToCSS();
+
+  // ---------------------------- ПРИМИТИВЫ РИСОВАНИЯ ----------------------------
+  function drawText(text, x, y, opts = {}){
+    const {
+      color = COLORS.textPrimary,
+      fontsize = 24,
+      align = "left",
+      baseline = "top",
+      owidth = 0,
+      ocolor = "rgba(0,0,0,0.5)",
+      weight = 600
+    } = opts;
+
+    ctx.font = `${weight} ${fontsize}px "Nunito Variable", "Nunito", sans-serif`;
+    ctx.textAlign = align;
+    ctx.textBaseline = baseline;
+
+    if (owidth > 0){
+      ctx.lineWidth = owidth * 2;
+      ctx.strokeStyle = ocolor;
+      ctx.strokeText(text, x, y);
+      ctx.lineWidth = 1;
+    }
+
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+  }
+
+  function fillRect(x, y, w, h, color){
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, w, h);
+  }
+
+  function roundedRect(x, y, w, h, r, fill, stroke){
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
+    if (fill){
+      ctx.fillStyle = fill;
+      ctx.fill();
+    }
+    if (stroke){
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+  }
+
+  function line(x1, y1, x2, y2, color, width=1){
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+
+  function filledCircle(x, y, r, color){
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  function strokedCircle(x, y, r, color, width=1){
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+
+  function drawStar(cx, cy, r, filled){
+    const pts = [];
+    for (let i = 0; i < 10; i++){
+      const ang = deg2rad(-90 + i*36);
+      const rr = (i % 2 === 0) ? r : r * 0.45;
+      pts.push({x: cx + rr*Math.cos(ang), y: cy + rr*Math.sin(ang)});
+    }
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.closePath();
+    
+    if (filled){
+      const grad = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+      grad.addColorStop(0, COLORS.starGold);
+      grad.addColorStop(1, COLORS.starGoldDark);
+      ctx.fillStyle = grad;
+      ctx.shadowColor = 'rgba(255, 215, 0, 0.5)';
+      ctx.shadowBlur = 8;
+    } else {
+      ctx.fillStyle = COLORS.starEmpty;
+      ctx.shadowBlur = 0;
+    }
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    
+    ctx.strokeStyle = filled ? '#B8860B' : '#37474F';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+
+  // ===================== ИКОНКИ И МИНИ-ГРАФИКА =====================
+  
+  // Иконка качелей (рычаг)
+  function drawIconSeesaw(x, y, size, angle = 0){
+    ctx.save();
+    ctx.translate(x, y);
+    
+    // Опора (треугольник)
+    const triH = size * 0.4;
+    ctx.fillStyle = '#607D8B';
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.2, triH);
+    ctx.lineTo(size * 0.2, triH);
+    ctx.lineTo(0, 0);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Ось
+    filledCircle(0, 0, size * 0.08, COLORS.supportAccent);
+    
+    // Балка
+    ctx.rotate(deg2rad(angle));
+    const grad = ctx.createLinearGradient(-size * 0.5, -3, -size * 0.5, 3);
+    grad.addColorStop(0, COLORS.leverWoodLight);
+    grad.addColorStop(0.5, COLORS.leverWood);
+    grad.addColorStop(1, COLORS.leverWoodDark);
+    ctx.fillStyle = grad;
+    roundedRect(-size * 0.5, -4, size, 8, 2, grad, null);
+    
+    ctx.restore();
+  }
+  
+  // Иконка гири
+  function drawIconWeight(x, y, size, colorSet = COLORS.weightBlue){
+    const r = size / 2;
+    
+    // Тень
+    ctx.shadowColor = 'rgba(0,0,0,0.3)';
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetY = 2;
+    
+    // Градиент
+    const grad = ctx.createRadialGradient(x - r*0.3, y - r*0.3, 0, x, y, r);
+    grad.addColorStop(0, colorSet[0]);
+    grad.addColorStop(0.7, colorSet[1]);
+    grad.addColorStop(1, colorSet[2]);
+    
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    
+    // Обводка
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    
+    // Блик
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(x - r*0.25, y - r*0.25, r*0.35, r*0.2, deg2rad(-45), 0, Math.PI*2);
+    ctx.fill();
+  }
+  
+  // Иконка точки опоры
+  function drawIconFulcrum(x, y, size){
+    // Треугольная опора
+    ctx.fillStyle = '#455A64';
+    ctx.beginPath();
+    ctx.moveTo(x - size/2, y + size * 0.4);
+    ctx.lineTo(x + size/2, y + size * 0.4);
+    ctx.lineTo(x, y - size * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Золотая точка
+    filledCircle(x, y - size * 0.15, size * 0.15, COLORS.supportAccent);
+    
+    // Блик
+    filledCircle(x - size * 0.05, y - size * 0.2, size * 0.05, 'rgba(255,255,255,0.5)');
+  }
+  
+  // Иконка плеча силы (стрелка с расстоянием)
+  function drawIconArm(x, y, w, label){
+    const arrowY = y;
+    
+    // Линия
+    ctx.strokeStyle = COLORS.textBlue;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, arrowY);
+    ctx.lineTo(x + w, arrowY);
+    ctx.stroke();
+    
+    // Стрелки на концах
+    ctx.beginPath();
+    ctx.moveTo(x + 8, arrowY - 5);
+    ctx.lineTo(x, arrowY);
+    ctx.lineTo(x + 8, arrowY + 5);
+    ctx.stroke();
+    
+    ctx.beginPath();
+    ctx.moveTo(x + w - 8, arrowY - 5);
+    ctx.lineTo(x + w, arrowY);
+    ctx.lineTo(x + w - 8, arrowY + 5);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    
+    // Подпись
+    drawText(label, x + w/2, arrowY - 12, {
+      align: 'center', baseline: 'middle',
+      color: COLORS.textBlue, fontsize: 12, weight: 700
+    });
+  }
+  
+  // Иконка клавиши
+  function drawKey(x, y, text, width = 40){
+    const h = 26;
+    const w = width;
+    
+    // Тень
+    roundedRect(x + 2, y + 2, w, h, 5, 'rgba(0,0,0,0.3)', null);
+    
+    // Клавиша
+    const grad = ctx.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, '#546E7A');
+    grad.addColorStop(1, '#37474F');
+    roundedRect(x, y, w, h, 5, grad, '#78909C');
+    
+    drawText(text, x + w/2, y + h/2, {
+      align: 'center', baseline: 'middle',
+      color: '#ECEFF1', fontsize: text.length > 2 ? 10 : 13, weight: 700
+    });
+  }
+  
+  // Формула M = F × d
+  function drawFormula(x, y, size){
+    const fs = size * 0.4;
+    drawText("M", x, y, {color: COLORS.textGold, fontsize: fs, weight: 800, align: 'center', baseline: 'middle'});
+    drawText("=", x + fs * 0.8, y, {color: COLORS.textPrimary, fontsize: fs * 0.8, weight: 600, align: 'center', baseline: 'middle'});
+    drawText("F", x + fs * 1.5, y, {color: COLORS.textGreen, fontsize: fs, weight: 800, align: 'center', baseline: 'middle'});
+    drawText("×", x + fs * 2.2, y, {color: COLORS.textPrimary, fontsize: fs * 0.8, weight: 600, align: 'center', baseline: 'middle'});
+    drawText("d", x + fs * 2.9, y, {color: COLORS.textBlue, fontsize: fs, weight: 800, align: 'center', baseline: 'middle'});
+  }
+  
+  // Мини-схема равновесия
+  function drawBalanceDiagram(x, y, w, h, balanced = true){
+    const centerX = x + w/2;
+    const centerY = y + h * 0.6;
+    const beamW = w * 0.8;
+    
+    // Опора
+    ctx.fillStyle = '#607D8B';
+    ctx.beginPath();
+    ctx.moveTo(centerX - 15, centerY + 20);
+    ctx.lineTo(centerX + 15, centerY + 20);
+    ctx.lineTo(centerX, centerY);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Балка
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    if (!balanced) ctx.rotate(deg2rad(15));
+    
+    const grad = ctx.createLinearGradient(-beamW/2, -4, -beamW/2, 4);
+    grad.addColorStop(0, COLORS.leverWoodLight);
+    grad.addColorStop(1, COLORS.leverWoodDark);
+    ctx.fillStyle = grad;
+    ctx.fillRect(-beamW/2, -4, beamW, 8);
+    
+    // Грузы
+    drawIconWeight(-beamW/3, -15, 18, COLORS.weightGreen);
+    drawIconWeight(beamW/3, -15, 18, COLORS.weightBlue);
+    
+    ctx.restore();
+    
+    // Ось
+    filledCircle(centerX, centerY, 5, COLORS.supportAccent);
+  }
+
+  // ---------------------------- ФОН И СЦЕНА ----------------------------
+  function createSkyGradient(){
+    const grad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+    grad.addColorStop(0, COLORS.skyTop);
+    grad.addColorStop(0.5, COLORS.skyMiddle);
+    grad.addColorStop(1, COLORS.skyBottom);
+    return grad;
+  }
+
+  function createGroundGradient(){
+    const grad = ctx.createLinearGradient(0, GROUND_Y, 0, HEIGHT);
+    grad.addColorStop(0, COLORS.grassTop);
+    grad.addColorStop(0.15, COLORS.grassBottom);
+    grad.addColorStop(0.15, COLORS.groundTop);
+    grad.addColorStop(0.5, COLORS.groundMiddle);
+    grad.addColorStop(1, COLORS.groundBottom);
+    return grad;
+  }
+
+  function draw_background(){
+    // Небо
+    ctx.fillStyle = createSkyGradient();
+    ctx.fillRect(0, 0, WIDTH, GROUND_Y);
+    
+    // Декоративные облака
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    const cloudOffset = (animTime * 10) % (WIDTH + 200);
+    drawCloud(100 + cloudOffset * 0.3 - 100, 80, 60);
+    drawCloud(400 + cloudOffset * 0.2 - 100, 50, 45);
+    drawCloud(700 + cloudOffset * 0.25 - 100, 100, 55);
+    
+    // Земля
+    ctx.fillStyle = createGroundGradient();
+    ctx.fillRect(0, GROUND_Y, WIDTH, HEIGHT - GROUND_Y);
+    
+    // Линия горизонта
+    ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND_Y);
+    ctx.lineTo(WIDTH, GROUND_Y);
+    ctx.stroke();
+  }
+  
+  function drawCloud(x, y, size){
+    ctx.beginPath();
+    ctx.arc(x, y, size * 0.5, 0, Math.PI * 2);
+    ctx.arc(x + size * 0.4, y - size * 0.1, size * 0.4, 0, Math.PI * 2);
+    ctx.arc(x + size * 0.8, y, size * 0.45, 0, Math.PI * 2);
+    ctx.arc(x + size * 0.35, y + size * 0.2, size * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function draw_lever(){
+    const a = lever.angle;
+    const axis = (current_level().axis_position ?? 0) | 0;
+    const sup = mark_pos(axis, a);
+    
+    // Опора (треугольник с градиентом)
+    const triH = 50;
+    const triW = 40;
+    
+    ctx.shadowColor = 'rgba(0,0,0,0.3)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 5;
+    
+    const triGrad = ctx.createLinearGradient(sup.x - triW/2, GROUND_Y, sup.x + triW/2, GROUND_Y - triH);
+    triGrad.addColorStop(0, COLORS.supportBase);
+    triGrad.addColorStop(1, COLORS.supportTop);
+    
+    ctx.fillStyle = triGrad;
+    ctx.beginPath();
+    ctx.moveTo(sup.x - triW/2, GROUND_Y);
+    ctx.lineTo(sup.x + triW/2, GROUND_Y);
+    ctx.lineTo(sup.x, GROUND_Y - triH);
+    ctx.closePath();
+    ctx.fill();
+    
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    
+    // Балка рычага
+    const [p1, p2] = beam_endpoints(a);
+    
+    ctx.save();
+    ctx.translate(LEVER_CENTER_X, LEVER_CENTER_Y);
+    ctx.rotate(a);
+    
+    // Тень балки
+    ctx.shadowColor = 'rgba(0,0,0,0.3)';
+    ctx.shadowBlur = 15;
+    ctx.shadowOffsetY = 8;
+    
+    // Градиент дерева
+    const beamGrad = ctx.createLinearGradient(0, -10, 0, 10);
+    beamGrad.addColorStop(0, COLORS.leverWoodLight);
+    beamGrad.addColorStop(0.3, COLORS.leverWood);
+    beamGrad.addColorStop(0.7, COLORS.leverWood);
+    beamGrad.addColorStop(1, COLORS.leverWoodDark);
+    
+    ctx.fillStyle = beamGrad;
+    roundedRect(-LEVER_LENGTH/2, -10, LEVER_LENGTH, 20, 4, beamGrad, null);
+    
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    
+    // Металлические накладки на концах
+    ctx.fillStyle = COLORS.leverMetal;
+    roundedRect(-LEVER_LENGTH/2, -12, 20, 24, 3, COLORS.leverMetal, COLORS.leverMetalLight);
+    roundedRect(LEVER_LENGTH/2 - 20, -12, 20, 24, 3, COLORS.leverMetal, COLORS.leverMetalLight);
+    
+    ctx.restore();
+    
+    // Ось вращения (золотая точка)
+    ctx.shadowColor = 'rgba(255, 193, 7, 0.5)';
+    ctx.shadowBlur = 10;
+    filledCircle(sup.x, sup.y, 8, COLORS.supportAccent);
+    ctx.shadowBlur = 0;
+    
+    // Блик на оси
+    filledCircle(sup.x - 2, sup.y - 2, 3, 'rgba(255,255,255,0.6)');
+  }
+
+  function draw_marks(){
+    const a = lever.angle;
+    const axis = (current_level().axis_position ?? 0) | 0;
+
+    for (let i = -LEVER_MARKS; i <= LEVER_MARKS; i++){
+      const p = mark_pos(i, a);
+      
+      if (i === axis){
+        // Ось уже нарисована золотой
+        continue;
+      }
+      
+      // Обычные метки
+      const r = 4;
+      filledCircle(p.x, p.y, r, 'rgba(255,255,255,0.8)');
+      strokedCircle(p.x, p.y, r, 'rgba(0,0,0,0.2)', 1);
+
+      if (i % 2 === 0){
+        drawText(String(i), p.x, p.y + 18, {
+          align: "center", baseline: "middle",
+          color: COLORS.textDark, fontsize: 13, weight: 700
+        });
+      }
+    }
+  }
+
+  function draw_forbidden(){
+    const a = lever.angle;
+    const zones = current_level().forbidden_zones || [];
+    
+    for (const [lo, hi] of zones){
+      for (let i = lo; i <= hi; i++){
+        const p = mark_pos(i, a);
+        
+        // Красный круг с X
+        filledCircle(p.x, p.y, 10, COLORS.forbiddenLight);
+        filledCircle(p.x, p.y, 7, COLORS.forbidden);
+        
+        // Крестик
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(p.x - 4, p.y - 4);
+        ctx.lineTo(p.x + 4, p.y + 4);
+        ctx.moveTo(p.x - 4, p.y + 4);
+        ctx.lineTo(p.x + 4, p.y - 4);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
+    }
+  }
+
+  function draw_weight_at(w, pos, isDragging = false){
+    const size = Math.trunc(w.size ?? 24);
+    const colors = w.colors || COLORS.weightGray;
+    
+    // Тень (больше если перетаскивается)
+    if (isDragging){
+      ctx.shadowColor = 'rgba(0,0,0,0.4)';
+      ctx.shadowBlur = 20;
+      ctx.shadowOffsetY = 10;
+    } else {
+      ctx.shadowColor = 'rgba(0,0,0,0.3)';
+      ctx.shadowBlur = 8;
+      ctx.shadowOffsetY = 4;
+    }
+    
+    // Градиент
+    const grad = ctx.createRadialGradient(pos.x - size*0.3, pos.y - size*0.3, 0, pos.x, pos.y, size);
+    grad.addColorStop(0, colors[0]);
+    grad.addColorStop(0.7, colors[1]);
+    grad.addColorStop(1, colors[2]);
+    
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, size, 0, Math.PI*2);
+    ctx.fill();
+    
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    
+    // Обводка
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    
+    // Блик
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(pos.x - size*0.3, pos.y - size*0.3, size*0.4, size*0.25, deg2rad(-45), 0, Math.PI*2);
+    ctx.fill();
+
+    // Подпись массы
+    let label = "?";
+    if (w.mass !== "?"){
+      const m = Number(w.mass);
+      label = Number.isInteger(m) ? String(m|0) : m.toFixed(1);
+    }
+    drawText(label, pos.x, pos.y, {
+      align: "center", baseline: "middle",
+      color: "white", fontsize: size > 25 ? 18 : 14,
+      weight: 800,
+      owidth: 2, ocolor: "rgba(0,0,0,0.5)"
+    });
+  }
+
+  function draw_weights(){
+    const a = lever.angle;
+
+    for (const [posIndex, w] of placed.entries()){
+      const p = mark_pos(posIndex, a);
+      draw_weight_at(w, p);
+    }
+
+    const lvl = current_level();
+    if (lvl.type === "mystery"){
+      const pos = (lvl.mystery_weight_pos ?? 0) | 0;
+      if (!placed.has(pos)){
+        const p = mark_pos(pos, a);
+        const wdef = WEIGHTS.get("mystery");
+        
+        // Пульсация для загадочного груза
+        const pulse = 1 + Math.sin(animTime * 4) * 0.05;
+        draw_weight_at({type:"mystery", mass:"?", size: wdef.size * pulse, colors: wdef.colors}, p);
+      }
+    }
+
+    if (drag !== null){
+      draw_weight_at(drag, mouse_pos, true);
+    }
+  }
+
+  function draw_storage(){
+    // Панель сверху
+    const panelGrad = ctx.createLinearGradient(0, 0, 0, 85);
+    panelGrad.addColorStop(0, 'rgba(255,255,255,0.98)');
+    panelGrad.addColorStop(1, 'rgba(240,245,250,0.95)');
+    
+    ctx.fillStyle = panelGrad;
+    ctx.fillRect(0, 0, WIDTH, 85);
+    
+    // Тень снизу
+    const shadowGrad = ctx.createLinearGradient(0, 85, 0, 95);
+    shadowGrad.addColorStop(0, 'rgba(0,0,0,0.1)');
+    shadowGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = shadowGrad;
+    ctx.fillRect(0, 85, WIDTH, 10);
+
+    drawText("Полка грузов", 16, 6, {
+      color: COLORS.textDark, fontsize: 14, weight: 700
+    });
+    drawText("(клик — взять, перетащи на метку)", 130, 6, {
+      color: '#78909C', fontsize: 12, weight: 400
+    });
+
+    let types = Array.from(inventory.keys());
+    if (types.length === 0) types = Array.from(WEIGHTS.keys());
+
+    let x = 16;
+    for (const name of types){
+      const count = inventory.get(name) ?? 0;
+      const wdef = WEIGHTS.get(name) || {mass:0, colors: COLORS.weightGray, size:20};
+
+      const box = {x, y: 26, w: 110, h: 54};
+      
+      // Карточка груза
+      const cardGrad = ctx.createLinearGradient(box.x, box.y, box.x, box.y + box.h);
+      cardGrad.addColorStop(0, '#FAFAFA');
+      cardGrad.addColorStop(1, '#EEEEEE');
+      
+      roundedRect(box.x, box.y, box.w, box.h, 10, cardGrad, count > 0 ? 'rgba(0,0,0,0.1)' : 'rgba(200,200,200,0.5)');
+      
+      if (count === 0){
+        ctx.globalAlpha = 0.4;
+      }
+      
+      // Мини-груз
+      drawIconWeight(x + 30, 53, Math.floor(wdef.size * 0.6), wdef.colors);
+
+      const mass = wdef.mass;
+      const label = (mass === "?") ? "m = ?" : `m = ${Number(mass)}`;
+      drawText(label, x + 58, 38, {color: COLORS.textDark, fontsize: 14, weight: 600});
+      
+      // Количество
+      const countColor = count > 0 ? COLORS.textGreen : COLORS.textRed;
+      drawText(`${count} шт`, x + 58, 56, {color: countColor, fontsize: 13, weight: 700});
+      
+      ctx.globalAlpha = 1;
+
+      x += 120;
+    }
+  }
+
+  function draw_balance_indicator(){
+    const {target_angle: tgt} = net_moment_and_angle();
+    
+    const indicator_x = LEVER_CENTER_X;
+    const indicator_y = LEVER_CENTER_Y - 100;
+    
+    const scale_width = 180;
+    const scale_height = 12;
+    
+    // Фон шкалы
+    roundedRect(indicator_x - scale_width/2, indicator_y, scale_width, scale_height, 6, 
+      COLORS.balanceScale, 'rgba(0,0,0,0.2)');
+    
+    // Центральная метка
+    line(indicator_x, indicator_y - 3, indicator_x, indicator_y + scale_height + 3, '#4CAF50', 2);
+    
+    // Индикатор
+    const normalized = clamp(tgt / MAX_ANGLE_RAD, -1.0, 1.0);
+    const indicator_pos = indicator_x + Math.trunc(normalized * (scale_width/2 - 12));
+    
+    const isBalanced = Math.abs(tgt) < WIN_EPS_BAL;
+    const indicatorColor = isBalanced ? COLORS.balanceGood : COLORS.balanceBad;
+    
+    ctx.shadowColor = indicatorColor;
+    ctx.shadowBlur = isBalanced ? 15 : 8;
+    filledCircle(indicator_pos, indicator_y + scale_height/2, 10, indicatorColor);
+    ctx.shadowBlur = 0;
+    
+    strokedCircle(indicator_pos, indicator_y + scale_height/2, 10, 'rgba(0,0,0,0.3)', 2);
+    
+    drawText("Баланс", indicator_x, indicator_y - 18, {
+      align: "center", baseline: "middle",
+      fontsize: 14, color: COLORS.textDark, weight: 600
+    });
+  }
+
+  function goal_text_with_tolerance(lvl){
+    const t = lvl.type;
+    const tolBal = Math.round(WIN_EPS_BAL * 180 / Math.PI);
+    const tolAng = Math.round(WIN_EPS_ANG * 180 / Math.PI);
+    
+    if (t === "angle"){
+      const target = (lvl.target_angle ?? 0) | 0;
+      return `угол ${target >= 0 ? "+" : ""}${target}° (+-${tolAng}°)`;
+    }
+    if (t === "complex"){
+      const target = (lvl.target_angle ?? 0) | 0;
+      return `угол ${target >= 0 ? "+" : ""}${target}° (+-${tolBal}°)`;
+    }
+    if (t === "balance") return `ровно (0° +-${tolBal}°)`;
+    if (t === "mystery") return "уравновесить, найти массу '?'";
+    return "-";
+  }
+
+  function draw_ui(){
+    const lvl = current_level();
+    const {left_known: lm, right_known: rm, target_angle: tgt} = net_moment_and_angle();
+    const axis = (lvl.axis_position ?? 0) | 0;
+    const lever_moment = (-axis) * LEVER_MASS;
+    const deg = tgt * 180 / Math.PI;
+    
+    // Инфо-панель внизу
+    const panelY = HEIGHT - 75;
+    const panelH = 70;
+    
+    ctx.fillStyle = COLORS.panelBg;
+    ctx.fillRect(0, panelY, WIDTH, panelH);
+    
+    // Верхняя линия панели
+    ctx.strokeStyle = COLORS.panelBorder;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, panelY);
+    ctx.lineTo(WIDTH, panelY);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+
+    // Левая часть: уровень и цель
+    drawText(`Уровень ${level_index+1}/${LEVELS.length}`, 16, panelY + 12, {
+      color: COLORS.textAccent, fontsize: 16, weight: 700
+    });
+    drawText(lvl.name, 16, panelY + 32, {
+      color: COLORS.textPrimary, fontsize: 14, weight: 600
+    });
+    drawText(`Цель: ${goal_text_with_tolerance(lvl)}`, 16, panelY + 50, {
+      color: COLORS.textSecondary, fontsize: 13
+    });
+    
+    // Центр: статус баланса
+    let angle_text = `Наклон: ${Math.round(deg)}°`;
+    if (Math.abs(deg) < 2) angle_text += " (ровно)";
+    else if (deg > 0) angle_text += " (вправо)";
+    else angle_text += " (влево)";
+    
+    let balance_text = "";
+    if (Math.abs(lm - rm) < 0.1) balance_text = "Стороны равны";
+    else if (lm > rm) balance_text = `Левая: ${lm.toFixed(1)} > Правая: ${rm.toFixed(1)}`;
+    else balance_text = `Правая: ${rm.toFixed(1)} > Левая: ${lm.toFixed(1)}`;
+    
+    drawText(balance_text, WIDTH/2, panelY + 15, {
+      align: 'center', color: COLORS.textOrange, fontsize: 14, weight: 600
+    });
+    drawText(angle_text, WIDTH/2, panelY + 35, {
+      align: 'center', color: COLORS.textPrimary, fontsize: 13
+    });
+    
+    if (Math.abs(lever_moment) >= 0.05){
+      const leverText = lever_moment > 0 ? `Рычаг тянет вправо (+${lever_moment.toFixed(1)})` 
+                                         : `Рычаг тянет влево (${lever_moment.toFixed(1)})`;
+      drawText(leverText, WIDTH/2, panelY + 52, {
+        align: 'center', color: '#CE93D8', fontsize: 12
+      });
+    }
+    
+    // Правая часть: статистика
+    drawText(`Попытки: ${attempts}/${ATTEMPT_LIMIT}`, WIDTH - 200, panelY + 12, {
+      color: attempts >= ATTEMPT_LIMIT - 1 ? COLORS.textRed : COLORS.textPrimary, fontsize: 14
+    });
+    drawText(`Ходы: ${moves_used}`, WIDTH - 200, panelY + 30, {
+      color: COLORS.textPrimary, fontsize: 14
+    });
+    
+    // Звёзды
+    for (let i = 0; i < 3; i++){
+      drawStar(WIDTH - 80 + i * 24, panelY + 22, 10, i < stars_per_level[level_index]);
+    }
+    
+    // Подсказки по клавишам
+    drawText("ПРОБЕЛ проверить | H подсказка | T теория | R сброс", WIDTH - 16, panelY + 55, {
+      align: 'right', color: COLORS.textSecondary, fontsize: 11
+    });
+
+    // Подсказка (если включена)
+    if (show_hint && lvl.hint && (state === "play" || state === "input_mystery")){
+      const hintY = panelY - 35;
+      roundedRect(10, hintY, WIDTH - 20, 30, 8, 'rgba(33, 150, 243, 0.9)', null);
+      drawText("Подсказка: " + lvl.hint, WIDTH/2, hintY + 15, {
+        align: 'center', baseline: 'middle',
+        color: 'white', fontsize: 14, weight: 600
+      });
+    }
+  }
+
+  // ---------------------------- ОВЕРЛЕИ ----------------------------
+  function draw_win_overlay(){
+    const box = {x:150, y:220, w:700, h:130};
+    
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 30;
+    roundedRect(box.x, box.y, box.w, box.h, 16, COLORS.successBg, COLORS.successBorder);
+    ctx.shadowBlur = 0;
+    
+    drawText("ПОБЕДА!", box.x + box.w/2, box.y + 35, {
+      align:"center", baseline:"middle",
+      color: COLORS.textPrimary, fontsize: 32,
+      weight: 800,
+      owidth: 2, ocolor: "rgba(0,0,0,0.3)"
+    });
+
+    const cx = box.x + box.w / 2;
+    const got = stars_per_level[level_index];
+    for (let i = 0; i < 3; i++){
+      drawStar(cx - 50 + i*50, box.y + 75, 18, i < got);
+    }
+    
+    drawText("ПРОБЕЛ — дальше   R — повторить", box.x + box.w/2, box.y + box.h - 15, {
+      align:"center", baseline:"middle",
+      color: COLORS.textSecondary, fontsize: 14
+    });
+  }
+
+  function draw_fail_overlay(){
+    const box = {x:150, y:240, w:700, h:90};
+    
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 20;
+    roundedRect(box.x, box.y, box.w, box.h, 16, COLORS.failBg, COLORS.failBorder);
+    ctx.shadowBlur = 0;
+    
+    drawText("Попытки закончились!", box.x + box.w/2, box.y + 30, {
+      align:"center", baseline:"middle",
+      color: COLORS.textPrimary, fontsize: 26, weight: 700
+    });
+    
+    drawText("ПРОБЕЛ — следующий уровень   R — попробовать снова", box.x + box.w/2, box.y + 62, {
+      align:"center", baseline:"middle",
+      color: COLORS.textSecondary, fontsize: 14
+    });
+  }
+
+  function draw_mystery_overlay(){
+    const box = {x:200, y:220, w:600, h:140};
+    
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 25;
+    roundedRect(box.x, box.y, box.w, box.h, 16, COLORS.mysteryBg, COLORS.mysteryBorder);
+    ctx.shadowBlur = 0;
+    
+    // Иконка загадочного груза
+    drawIconWeight(box.x + 50, box.y + 50, 30, COLORS.weightGray);
+    drawText("?", box.x + 50, box.y + 50, {
+      align: 'center', baseline: 'middle',
+      color: 'white', fontsize: 20, weight: 800
+    });
+
+    drawText("Введи массу неизвестного груза", box.x + box.w/2 + 20, box.y + 25, {
+      align: 'center', color: COLORS.textPrimary, fontsize: 20, weight: 600
+    });
+
+    const now = performance.now();
+    if (now < mystery_error_until){
+      drawText("Неверно! Попробуй ещё", box.x + box.w/2, box.y + 70, {
+        align:"center", baseline:"middle",
+        color: COLORS.textRed, fontsize: 24, weight: 700
+      });
+    } else {
+      // Поле ввода
+      roundedRect(box.x + 180, box.y + 55, 240, 40, 8, 'rgba(255,255,255,0.15)', 'rgba(255,255,255,0.4)');
+      drawText(`m = ${mystery_input}|`, box.x + 200, box.y + 75, {
+        baseline: 'middle',
+        color: 'white', fontsize: 22, weight: 600
+      });
+    }
+
+    drawText("Enter — проверить   Esc — отмена", box.x + box.w/2, box.y + box.h - 18, {
+      align: 'center', color: COLORS.textSecondary, fontsize: 13
+    });
+  }
+
+  function draw_final_overlay(){
+    fillRect(0, 0, WIDTH, HEIGHT, 'rgba(15, 25, 45, 0.95)');
+    
+    const total = total_stars();
+    
+    const box = {x:150, y:120, w:700, h:360};
+    
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 40;
+    roundedRect(box.x, box.y, box.w, box.h, 20, COLORS.infoBg, COLORS.infoBorder);
+    ctx.shadowBlur = 0;
+
+    drawText("ИГРА ЗАВЕРШЕНА!", box.x + box.w/2, box.y + 45, {
+      align:"center", baseline:"middle",
+      color: COLORS.textPrimary, fontsize: 34, weight: 800
+    });
+    
+    // Иконка качелей
+    drawIconSeesaw(box.x + box.w/2, box.y + 100, 80, 0);
+    
+    drawText(`Результат: ${total} из ${LEVELS.length * 3}`, box.x + box.w/2, box.y + 160, {
+      align:"center", baseline:"middle",
+      color: COLORS.textGold, fontsize: 26, weight: 700
+    });
+    
+    // Звёзды по уровням
+    const cols = 6, rows = 2;
+    const cellW = Math.floor((box.w - 40) / cols);
+    const startY = box.y + 200;
+    
+    let idx = 0;
+    for (let r = 0; r < rows; r++){
+      for (let c = 0; c < cols; c++){
+        if (idx >= LEVELS.length) break;
+        const cx = box.x + 20 + c * cellW + cellW/2;
+        const cy = startY + r * 55;
+        
+        drawText(String(idx + 1), cx, cy - 12, {
+          align:"center", baseline:"middle",
+          color: COLORS.textSecondary, fontsize: 14, weight: 600
+        });
+
+        const got = stars_per_level[idx];
+        for (let s = 0; s < 3; s++){
+          drawStar(cx - 24 + s*24, cy + 10, 9, s < got);
+        }
+        idx++;
+      }
+    }
+
+    // Комментарий
+    const comment = grade_comment(total);
+    drawText(comment, box.x + box.w/2, box.y + box.h - 60, {
+      align:"center", baseline:"middle",
+      color: COLORS.textPrimary, fontsize: 16
+    });
+
+    drawText("R — начать заново   T — теория", box.x + box.w/2, box.y + box.h - 25, {
+      align:"center", baseline:"middle",
+      color: COLORS.textSecondary, fontsize: 14
+    });
+  }
+
+  // ---------------------------- INTRO / THEORY ----------------------------
+  function draw_intro_overlay(){
+    const box = {x:80, y:50, w:840, h:500};
+    
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 30;
+    roundedRect(box.x, box.y, box.w, box.h, 16, COLORS.panelLight, COLORS.panelLightBorder);
+    ctx.shadowBlur = 0;
+    
+    // Заголовок
+    drawText("Как играть: Балансир", box.x + box.w/2, box.y + 30, {
+      align:"center", baseline:"middle",
+      color: COLORS.textDark, fontsize: 28, weight: 800
+    });
+    
+    // Иконка качелей
+    drawIconSeesaw(box.x + box.w/2, box.y + 75, 70, Math.sin(animTime * 2) * 8);
+    
+    // Контент с прокруткой
+    const contentY = box.y + 120;
+    const contentH = box.h - 170;
+    
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(box.x + 20, contentY, box.w - 40, contentH);
+    ctx.clip();
+    
+    const sections = [
+      {
+        title: "Основная идея",
+        icon: "seesaw",
+        text: "Рычаг — это балка, которая вращается вокруг опоры (жёлтая точка). Чтобы рычаг был в равновесии, нужно уравнять моменты сил слева и справа."
+      },
+      {
+        title: "Что такое момент силы?",
+        icon: "formula",
+        text: "Момент = масса × расстояние до оси. Чем дальше груз от оси — тем сильнее он тянет свою сторону вниз. Маленький груз далеко может уравновесить большой груз близко!"
+      },
+      {
+        title: "Управление",
+        icon: "keys",
+        text: "Клик по карточке — взять груз. Перетащи на метку рычага. Клик по грузу на рычаге — снять. ПРОБЕЛ — проверить результат."
+      },
+      {
+        title: "Важно помнить",
+        icon: "weight",
+        text: "Сам рычаг имеет вес! Если ось смещена — рычаг создаёт свой момент. Красные зоны — запрещены для грузов. Цифры на рычаге — расстояния от центра."
+      }
+    ];
+    
+    let y = contentY + 10 - INTRO_SCROLL * 25;
+    
+    for (const section of sections){
+      if (y > contentY - 80 && y < contentY + contentH + 20){
+        // Иконка (сдвинута левее)
+        if (section.icon === "seesaw"){
+          drawIconSeesaw(box.x + 45, y + 25, 40, 0);
+        } else if (section.icon === "formula"){
+          drawFormula(box.x + 40, y + 25, 55);
+        } else if (section.icon === "keys"){
+          drawKey(box.x + 30, y + 10, "Клик", 45);
+        } else if (section.icon === "weight"){
+          drawIconWeight(box.x + 45, y + 25, 18, COLORS.weightBlue);
+        }
+        
+        // Заголовок секции (сдвинут правее)
+        drawText(section.title, box.x + 120, y, {
+          color: COLORS.textDark, fontsize: 18, weight: 700
+        });
+        
+        // Текст (сдвинут правее)
+        const lines = wrapText(section.text, 70);
+        let ly = y + 25;
+        for (const line of lines){
+          drawText(line, box.x + 120, ly, {
+            color: '#546E7A', fontsize: 14, weight: 400
+          });
+          ly += 20;
+        }
+        
+        // Кнопки управления в секции "Управление"
+        if (section.icon === "keys"){
+          const keysRowY = ly + 5;
+          drawKey(box.x + 120, keysRowY, "H", 28);
+          drawText("подсказка", box.x + 155, keysRowY + 7, {color: '#78909C', fontsize: 11});
+          
+          drawKey(box.x + 230, keysRowY, "T", 28);
+          drawText("теория", box.x + 265, keysRowY + 7, {color: '#78909C', fontsize: 11});
+          
+          drawKey(box.x + 330, keysRowY, "R", 28);
+          drawText("сброс", box.x + 365, keysRowY + 7, {color: '#78909C', fontsize: 11});
+          
+          drawKey(box.x + 430, keysRowY, "ПРОБЕЛ", 65);
+          drawText("проверить", box.x + 502, keysRowY + 7, {color: '#78909C', fontsize: 11});
+        }
+      }
+      // В "Управление" рисуется дополнительный ряд кнопок — добавим место,
+      // чтобы следующий блок ("Важно помнить") не наезжал на них.
+      y += (section.icon === "keys") ? 110 : 90;
+    }
+    
+    ctx.restore();
+    
+    // Кнопка старта внизу
+    const btnY = box.y + box.h - 35;
+    drawText("Нажми ПРОБЕЛ чтобы начать", box.x + box.w/2, btnY + 10, {
+      align: 'center', baseline: 'middle',
+      color: COLORS.textAccent, fontsize: 16, weight: 700
+    });
+    
+    // Скроллбар
+    if (sections.length > 4){
+      const scrollH = Math.max(30, contentH * 0.3);
+      const scrollY = contentY + (INTRO_SCROLL / 10) * (contentH - scrollH);
+      roundedRect(box.x + box.w - 18, scrollY, 6, scrollH, 3, 'rgba(0,0,0,0.2)', null);
+    }
+  }
+
+  function draw_theory_screen(){
+    fillRect(0, 0, WIDTH, HEIGHT, 'rgba(15, 25, 45, 0.98)');
+    
+    const box = {x:60, y:40, w:880, h:520};
+    
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 30;
+    roundedRect(box.x, box.y, box.w, box.h, 16, COLORS.panelLight, COLORS.panelLightBorder);
+    ctx.shadowBlur = 0;
+    
+    drawText("Теория: правило моментов и рычаг", box.x + box.w/2, box.y + 25, {
+      align:"center", baseline:"middle",
+      color: COLORS.textDark, fontsize: 26, weight: 800
+    });
+    
+    const contentY = box.y + 55;
+    const contentH = box.h - 100;
+    
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(box.x + 20, contentY, box.w - 50, contentH);
+    ctx.clip();
+    
+    const theorySections = [
+      {
+        title: "Что такое рычаг?",
+        icon: "seesaw",
+        text: "Рычаг — это твёрдое тело (балка, доска), которое вращается вокруг неподвижной точки — оси. Качели на детской площадке, ножницы, плоскогубцы — всё это рычаги!"
+      },
+      {
+        title: "Плечо силы",
+        icon: "arm",
+        text: "Плечо силы — расстояние от оси вращения до точки приложения силы. В игре плечо измеряется делениями на рычаге. Чем больше плечо (дальше от оси), тем сильнее действие силы."
+      },
+      {
+        title: "Момент силы — главное правило",
+        icon: "formula",
+        text: "Момент = Масса × Расстояние от оси. Пример: груз массой 2 на расстоянии 5 от оси создаёт момент 2 × 5 = 10 единиц."
+      },
+      {
+        title: "Условие равновесия",
+        icon: "balance",
+        text: "Рычаг в равновесии, когда сумма моментов равна нулю. Проще: левые моменты = правые моменты."
+      },
+      {
+        title: "Золотое правило механики",
+        icon: "weight",
+        text: "«Выигрываешь в силе — проигрываешь в расстоянии». Маленький груз на большом плече может поднять большой груз на малом плече. Так работает домкрат!"
+      },
+      {
+        title: "Смещённая ось",
+        icon: "fulcrum",
+        text: "Когда ось не по центру, сам рычаг имеет вес и создаёт момент! Если ось смещена вправо — левая часть длиннее и перевешивает."
+      },
+      {
+        title: "Типы заданий",
+        icon: "star",
+        text: "РАВНОВЕСИЕ — добейся горизонтального положения. ЦЕЛЕВОЙ УГОЛ — наклони на заданный угол. ЗАГАДОЧНЫЙ ГРУЗ — уравновесь и определи массу '?'."
+      },
+      {
+        title: "Примеры из жизни",
+        icon: "seesaw",
+        text: "Качели: дети разного веса садятся на разном расстоянии. Гаечный ключ: длинная рукоятка даёт выигрыш в силе. Весы с коромыслом."
+      }
+    ];
+    
+    let y = contentY + 10 - THEORY_SCROLL * 20;
+    
+    for (const section of theorySections){
+      if (y > contentY - 100 && y < contentY + contentH + 30){
+        // Иконка (сдвинута левее)
+        const iconX = box.x + 45;
+        const iconY = y + 30;
+        
+        if (section.icon === "seesaw"){
+          drawIconSeesaw(iconX, iconY, 45, 0);
+        } else if (section.icon === "formula"){
+          drawFormula(iconX - 5, iconY, 65);
+        } else if (section.icon === "arm"){
+          drawIconArm(iconX - 25, iconY, 50, "d");
+        } else if (section.icon === "balance"){
+          drawBalanceDiagram(iconX - 30, iconY - 25, 60, 50, true);
+        } else if (section.icon === "weight"){
+          drawIconWeight(iconX, iconY, 22, COLORS.weightGreen);
+        } else if (section.icon === "fulcrum"){
+          drawIconFulcrum(iconX, iconY, 40);
+        } else if (section.icon === "star"){
+          drawStar(iconX, iconY, 20, true);
+        }
+        
+        // Заголовок (сдвинут правее)
+        drawText(section.title, box.x + 130, y + 5, {
+          color: COLORS.textDark, fontsize: 17, weight: 700
+        });
+        
+        // Текст (сдвинут правее)
+        const lines = wrapText(section.text, 80);
+        let ly = y + 28;
+        for (const line of lines){
+          drawText(line, box.x + 130, ly, {
+            color: '#546E7A', fontsize: 13, weight: 400
+          });
+          ly += 18;
+        }
+      }
+      y += 85;
+    }
+    
+    ctx.restore();
+    
+    // Скроллбар
+    const maxScroll = Math.max(0, theorySections.length * 85 - contentH);
+    if (maxScroll > 0){
+      const scrollRatio = THEORY_SCROLL * 20 / maxScroll;
+      const scrollH = Math.max(40, contentH * (contentH / (theorySections.length * 85)));
+      const scrollY = contentY + scrollRatio * (contentH - scrollH);
+      roundedRect(box.x + box.w - 22, scrollY, 6, scrollH, 3, 'rgba(0,0,0,0.25)', null);
+    }
+    
+    drawText("стрелки или колесо мыши — прокрутка   T или Esc — назад к игре", box.x + box.w/2, box.y + box.h - 20, {
+      align: 'center', color: '#78909C', fontsize: 13
+    });
+  }
+  
+  function wrapText(text, maxLen){
+    const words = text.split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = "";
+    for (const w of words){
+      if ((cur.length + w.length + (cur ? 1 : 0)) <= maxLen){
+        cur = cur ? (cur + " " + w) : w;
+      } else {
+        if (cur) lines.push(cur);
+        cur = w;
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
+  // ---------------------------- ГЛАВНЫЙ DRAW ----------------------------
+  function draw(){
+    if (state === "theory"){
+      draw_theory_screen();
+      return;
+    }
+
+    draw_background();
+    draw_lever();
+    draw_marks();
+    draw_forbidden();
+    draw_weights();
+    draw_balance_indicator();
+    draw_storage();
+    draw_ui();
+
+    if (state === "intro") draw_intro_overlay();
+    else if (state === "win") draw_win_overlay();
+    else if (state === "input_mystery") draw_mystery_overlay();
+    else if (state === "final") draw_final_overlay();
+    else if (state === "fail") draw_fail_overlay();
+  }
+
+  // ---------------------------- СОБЫТИЯ ----------------------------
+  function canvasToGameCoords(evt){
+    const rect = canvas.getBoundingClientRect();
+    const x = (evt.clientX - rect.left) / rect.width * WIDTH;
+    const y = (evt.clientY - rect.top) / rect.height * HEIGHT;
+    return {x, y};
+  }
+
+  function tryPlaceAt(point, fromClick=false){
+    if (drag === null) return false;
+
+    const {index: idx, dist} = nearest_mark_to_point(point);
+
+    let valid_zone = (dist < 36) && !is_forbidden(idx) && !placed.has(idx);
+
+    const lvl = current_level();
+    if (valid_zone && lvl.type === "mystery"){
+      const qpos = (lvl.mystery_weight_pos ?? 0) | 0;
+      if (idx === qpos) valid_zone = false;
+    }
+
+    if (valid_zone){
+      placed.set(idx, {type: drag.type, mass: drag.mass, size: drag.size, colors: drag.colors});
+      if (drag.from === "storage"){
+        inventory.set(drag.type, (inventory.get(drag.type) ?? 0) - 1);
+      }
+      moves_used += 1;
+      drag = null;
+      return true;
+    }
+    return false;
+  }
+
+  canvas.addEventListener("pointerdown", (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    const pos = canvasToGameCoords(e);
+    mouse_pos = pos;
+
+    if (!(state === "play" || state === "input_mystery")) return;
+
+    if (drag !== null){
+      if (tryPlaceAt(pos, true)) return;
+    }
+
+    const name = storage_hit(pos);
+    if (name && (inventory.get(name) ?? 0) > 0){
+      const wdef = WEIGHTS.get(name);
+      drag = {from:"storage", type:name, mass:wdef.mass, size:wdef.size, colors:wdef.colors, prev_pos:null};
+      return;
+    }
+
+    const a = lever.angle;
+    for (const [posIndex, w] of Array.from(placed.entries())){
+      if (w.type === "custom") continue;
+      const p = mark_pos(posIndex, a);
+      const r = (w.size ?? 24);
+      const dx = pos.x - p.x, dy = pos.y - p.y;
+      if ((dx*dx + dy*dy) <= (r+8)*(r+8)){
+        drag = {from:"lever", type:w.type, mass:w.mass, size:w.size, colors:w.colors, prev_pos:posIndex};
+        placed.delete(posIndex);
+        return;
+      }
+    }
+  });
+
+  canvas.addEventListener("pointermove", (e) => {
+    mouse_pos = canvasToGameCoords(e);
+  });
+
+  canvas.addEventListener("pointerup", (e) => {
+    const pos = canvasToGameCoords(e);
+    mouse_pos = pos;
+
+    if (drag === null) return;
+
+    if (tryPlaceAt(pos, false)) return;
+
+    if (pos.y < 90 && drag.from === "lever"){
+      inventory.set(drag.type, (inventory.get(drag.type) ?? 0) + 1);
+      drag = null;
+      return;
+    }
+
+    if (drag.from === "lever" && drag.prev_pos !== null && !placed.has(drag.prev_pos)){
+      placed.set(drag.prev_pos, {type: drag.type, mass: drag.mass, size: drag.size, colors: drag.colors});
+    }
+    drag = null;
+  });
+
+  canvas.addEventListener("wheel", (e) => {
+    if (state === "theory"){
+      e.preventDefault();
+      scroll_theory(e.deltaY > 0 ? 2 : -2);
+      return;
+    }
+    if (state === "intro"){
+      e.preventDefault();
+      scroll_intro(e.deltaY > 0 ? 1 : -1);
+    }
+  }, {passive:false});
+
+  function scroll_theory(delta){
+    THEORY_SCROLL = clamp(THEORY_SCROLL + delta, 0, 30);
+  }
+  
+  function scroll_intro(delta){
+    INTRO_SCROLL = clamp(INTRO_SCROLL + delta, 0, 8);
+  }
+
+  document.addEventListener("keydown", (e) => {
+    const code = e.code;
+
+    if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space","PageUp","PageDown"].includes(code)){
+      e.preventDefault();
+    }
+
+    if (state === "fail"){
+      if (code === "KeyR"){
+        reset_level();
+        state = "play";
+        return;
+      }
+      if (code === "Space" || code === "KeyN"){
+        if (level_index < LEVELS.length - 1){
+          level_index += 1;
+          reset_level();
+          state = "play";
+        } else {
+          state = "final";
+        }
+        return;
+      }
+    }
+
+    if (code === "KeyR" && (state === "play" || state === "win" || state === "input_mystery")){
+      reset_level();
+      return;
+    }
+
+    if (code === "KeyH"){
+      const prev = show_hint;
+      show_hint = !show_hint;
+      if ((!prev) && show_hint && (!hint_used_this_level) && (state === "play" || state === "input_mystery")){
+        moves_used += 1;
+        hint_used_this_level = true;
+      }
+      return;
+    }
+
+    if (code === "KeyT"){
+      if (state === "theory"){
+        state = PREV_STATE || "play";
+        PREV_STATE = null;
+        return;
+      }
+      if (["play", "win", "final", "intro"].includes(state)){
+        PREV_STATE = state;
+        THEORY_SCROLL = 0;
+        state = "theory";
+        return;
+      }
+    }
+
+    if (state === "theory"){
+      if (code === "ArrowDown") scroll_theory(+2);
+      else if (code === "ArrowUp") scroll_theory(-2);
+      else if (code === "PageDown") scroll_theory(+6);
+      else if (code === "PageUp") scroll_theory(-6);
+      else if (code === "Escape" || code === "Backspace") {
+        state = PREV_STATE || "play";
+        PREV_STATE = null;
+      }
+      return;
+    }
+    
+    if (state === "intro"){
+      if (code === "ArrowDown") scroll_intro(+1);
+      else if (code === "ArrowUp") scroll_intro(-1);
+      else if (code === "Space") state = "play";
+      return;
+    }
+
+    if (code === "KeyN" && state === "win"){
+      if (level_index < LEVELS.length - 1){
+        level_index += 1;
+        reset_level();
+      } else {
+        state = "final";
+      }
+      return;
+    }
+
+    if (state === "play" && code === "Space"){
+      attempts += 1;
+      check_victory();
+      if (state === "win"){
+        const s = calculate_stars(current_level().type, attempts, moves_used, (performance.now() - start_time)/1000);
+        stars_per_level[level_index] = Math.max(stars_per_level[level_index], s);
+      } else {
+        if (attempts >= ATTEMPT_LIMIT) state = "fail";
+      }
+      return;
+    }
+
+    if (state === "win" && code === "Space"){
+      if (level_index < LEVELS.length - 1){
+        level_index += 1;
+        reset_level();
+      } else {
+        state = "final";
+      }
+      return;
+    }
+
+    if (state === "input_mystery"){
+      if (code === "Enter" || code === "NumpadEnter"){
+        let entered = null;
+        try {
+          entered = parseFloat(mystery_input.replace(",", "."));
+          if (Number.isNaN(entered)) entered = null;
+        } catch { entered = null; }
+        const true_m = Number(current_level().mystery_weight_mass ?? 0);
+        const ok = (entered !== null) && (Math.abs(entered - true_m) <= 0.1);
+
+        if (ok){
+          const s = calculate_stars("mystery", attempts, moves_used, (performance.now() - start_time)/1000);
+          stars_per_level[level_index] = Math.max(stars_per_level[level_index], s);
+          state = "win";
+          mystery_input = "";
+        } else {
+          attempts += 1;
+          if (attempts >= ATTEMPT_LIMIT){
+            state = "fail";
+            mystery_input = "";
+            return;
+          }
+          mystery_input = "";
+          mystery_error_until = performance.now() + 1200;
+        }
+        return;
+      }
+
+      if (code === "Escape"){
+        state = "play";
+        return;
+      }
+      if (code === "Backspace"){
+        if (mystery_input.length > 0) mystery_input = mystery_input.slice(0, -1);
+        return;
+      }
+
+      if (e.key && /^[0-9]$/.test(e.key)){
+        mystery_input += e.key;
+        return;
+      }
+      if (e.key === "." || e.key === ","){
+        mystery_input += ".";
+        return;
+      }
+      return;
+    }
+
+    if (state === "final" && code === "KeyR"){
+      stars_per_level = new Array(LEVELS.length).fill(0);
+      level_index = 0;
+      reset_level();
+      state = "intro";
+      return;
+    }
+  }, {passive:false});
+
+  // ---------------------------- ИГРОВОЙ ЦИКЛ ----------------------------
+  let lastTs = null;
+  function loop(ts){
+    if (lastTs === null) lastTs = ts;
+    let dt = (ts - lastTs) / 1000;
+    lastTs = ts;
+    dt = clamp(dt, 0, 0.05);
+    
+    animTime += dt;
+
+    if (state !== "final" && state !== "theory"){
+      const {target_angle: tgt} = net_moment_and_angle();
+      lever.update(tgt, dt);
+    }
+
+    draw();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+  
+  // ---- platform integration (progress/save/stats) ----
+  window.GameInstance = {
+    exportState(){ return { v: 1, level_index, stars_per_level: Array.isArray(stars_per_level) ? stars_per_level.slice() : [] }; },
+    importState(s){
+      if (!s || typeof s !== "object") return;
+      if (Number.isInteger(s.level_index)) level_index = Math.max(0, Math.min(LEVELS.length-1, s.level_index));
+      if (Array.isArray(s.stars_per_level)) {
+        stars_per_level = s.stars_per_level.map(x => Math.max(0, Math.min(3, Number(x)||0)));
+        while (stars_per_level.length < LEVELS.length) stars_per_level.push(0);
+        stars_per_level = stars_per_level.slice(0, LEVELS.length);
+      }
+      reset_level();
+      state = "play";
+    },
+    getSessionSummary(){
+      const by = Array.isArray(stars_per_level) ? stars_per_level.slice() : [];
+      return {
+        stars_total: (typeof total_stars === "function") ? total_stars() : by.reduce((a,b)=>a+(+b||0),0),
+        stars_by_level: by,
+        level_reached: (Number.isInteger(level_index) ? level_index+1 : null),
+      };
+    }
+  };
+})();
+</script>
+<script src="/platform/client.js"></script>
+<script src="/platform/bridge.js"></script>
+</body>
+</html>

@@ -1,0 +1,1852 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>График-мастер</title>
+  <link rel="stylesheet" href="/assets/fonts/nunito/wght.css">
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body{
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      display: grid;
+      place-items: center;
+      padding: 14px;
+      box-sizing: border-box;
+      font-family: "Nunito Variable", sans-serif;
+    }
+    canvas{
+      width: min(1100px, calc(100vw - 28px));
+      aspect-ratio: 1000 / 700;
+      border-radius: 20px;
+      box-shadow: 
+        0 20px 60px rgba(0,0,0,0.5),
+        0 0 40px rgba(100, 200, 255, 0.15),
+        inset 0 0 80px rgba(255,255,255,0.03);
+      outline: 2px solid rgba(255,255,255,0.1);
+      display: block;
+      touch-action: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game" width="1000" height="700" aria-label="График-мастер"></canvas>
+
+<script>
+(() => {
+  "use strict";
+  window.__GAME_ID__ = "graph_master";
+  // ---------------------------- КОНСТАНТЫ ----------------------------
+  const TITLE = "График мастер";
+  const WIDTH = 1000, HEIGHT = 700;
+
+  const UI_FS = 18;
+  const UI_LINE = 24;
+  const PROMPT_FS = 24;
+  const FINAL_TITLE_FS = 32;
+  const FINAL_TEXT_FS = 20;
+  const FOOTER_FS = 14;
+
+  const ATTEMPT_LIMIT = 5;
+  const HINT_LIMIT = 3;
+
+  const PLOT = {x:60, y:90, w:660, h:480};
+  const SL_PANEL = {x:740, y:90, w:240, h:480};
+  const SL_LINE_H = 60;
+
+  // ---------------------------- ЦВЕТОВАЯ ПАЛИТРА ----------------------------
+  const COLORS = {
+    // Основной фон
+    bgTop: '#E8F4FD',
+    bgMiddle: '#D4E8F7',
+    bgBottom: '#B8D4EC',
+    
+    // График (область построения)
+    plotBg: 'rgba(255, 255, 255, 0.95)',
+    plotBorder: 'rgba(100, 140, 180, 0.4)',
+    gridMajor: 'rgba(100, 140, 180, 0.3)',
+    gridMinor: 'rgba(150, 180, 210, 0.2)',
+    axisDark: '#3D5A80',
+    
+    // Кривые
+    targetCurve: '#E63946',
+    targetCurveDark: '#9D0208',
+    playerCurve: '#2A9D8F',
+    playerCurveGlow: 'rgba(42, 157, 143, 0.3)',
+    
+    // Зоны
+    zoneGreen: '#52B788',
+    zoneGreenLight: 'rgba(82, 183, 136, 0.25)',
+    forbidRed: '#E63946',
+    forbidRedLight: 'rgba(230, 57, 70, 0.2)',
+    
+    // Панели
+    panelBg: 'rgba(255, 255, 255, 0.95)',
+    panelBgDark: 'rgba(25, 45, 75, 0.95)',
+    panelBorder: 'rgba(100, 140, 180, 0.3)',
+    panelGlow: 'rgba(100, 180, 255, 0.15)',
+    
+    // Слайдеры
+    sliderBg: '#E9ECEF',
+    sliderFill: 'linear-gradient(90deg, #4CC9F0, #4361EE)',
+    sliderHandle: '#3D5A80',
+    sliderHandleActive: '#4361EE',
+    sliderTrack: '#DEE2E6',
+    
+    // Тексты
+    textPrimary: '#1D3557',
+    textSecondary: '#457B9D',
+    textLight: '#F1FAEE',
+    textAccent: '#E63946',
+    textGold: '#F4A261',
+    textGreen: '#2A9D8F',
+    textBlue: '#4361EE',
+    
+    // Звёзды
+    starGold: '#F4A261',
+    starGoldBright: '#FFD166',
+    starEmpty: '#ADB5BD',
+    
+    // Оверлеи
+    successBg: 'rgba(42, 157, 143, 0.95)',
+    successBorder: '#52B788',
+    failBg: 'rgba(230, 57, 70, 0.95)',
+    failBorder: '#F77F8E',
+    infoBg: 'rgba(67, 97, 238, 0.95)',
+    infoBorder: '#7B9FF9',
+    
+    // Кнопки подсказки
+    keyBg: '#3D5A80',
+    keyBgLight: '#4A6FA5',
+    keyText: '#F1FAEE',
+  };
+
+  // ---------------------------- СОСТОЯНИЕ ----------------------------
+  let state = "intro";
+  let state_before_theory = null;
+  let level_index = 0;
+  const stars_per_level = Array(12).fill(0);
+
+  let attempts_used = 0;
+  let hints_used = 0;
+  let last_hint_text = "";
+
+  let THEORY_SCROLL = 0;
+  let INTRO_SCROLL = 0;
+  let animTime = 0;
+
+  let param_specs = [];
+  let param_names = [];
+  let editing_params = {};
+  let committed_params = {};
+
+  let active_param_idx = 0;
+  let dragging_name = null;
+
+  // ---------------------------- УРОВНИ ----------------------------
+  function Param(name, vmin, vmax, step, start){
+    return {name, vmin, vmax, step, start};
+  }
+  function make_params(spec){
+    const out = {};
+    for (const p of spec) out[p.name] = p.start;
+    return out;
+  }
+
+  const LEVELS = [];
+
+  const f_line = (p, x) => p.k * x + (p.b ?? 0.0);
+  const f_line_kx = (p, x) => p.k * x;
+  const f_line_xb = (p, x) => x + (p.b ?? 0.0);
+  const f_quad_a = (p, x) => p.a * x * x;
+  const f_quad_shift_v = (p, x) => x * x + (p.c ?? 0.0);
+  const f_quad_vertex = (p, x) => p.a * ((x - p.h) ** 2) + (p.k ?? 0.0);
+  const f_quad_general = (p, x) => p.a * x * x + (p.b ?? 0.0) * x + (p.c ?? 0.0);
+
+  function lin_levels(){
+    LEVELS.push({
+      name: "Линия: только наклон (y = kx)",
+      world:{xmin:-8, xmax:8, ymin:-8, ymax:8},
+      target:{type:"line_kx", func:f_line_kx, params:{k:1.8}},
+      pass_err:0.8,
+      player_spec:[Param("k", -3, 3, 0.1, 0.5)],
+      hint_kind:"line",
+    });
+
+    LEVELS.push({
+      name:"Линия: только сдвиг (y = x + b)",
+      world:{xmin:-8, xmax:8, ymin:-8, ymax:8},
+      target:{type:"line_xb", func:f_line_xb, params:{b:-2.0}},
+      pass_err:0.8,
+      player_spec:[Param("b", -5, 5, 0.1, 0.0)],
+      hint_kind:"line",
+    });
+
+    LEVELS.push({
+      name:"Линия: наклон и сдвиг (y = kx + b)",
+      world:{xmin:-8, xmax:8, ymin:-8, ymax:8},
+      target:{type:"line", func:f_line, params:{k:-2.0, b:3.0}},
+      pass_err:0.8,
+      player_spec:[Param("k", -3, 3, 0.1, 1.0), Param("b", -5, 5, 0.1, 0.0)],
+      hint_kind:"line",
+    });
+
+    LEVELS.push({
+      name:"Линия: дробные коэффициенты (y = kx + b)",
+      world:{xmin:-8, xmax:8, ymin:-8, ymax:8},
+      target:{type:"line", func:f_line, params:{k:0.75, b:-1.25}},
+      pass_err:0.8,
+      player_spec:[Param("k", -3, 3, 0.05, 0.0), Param("b", -5, 5, 0.05, 0.0)],
+      hint_kind:"line",
+    });
+
+    LEVELS.push({
+      name:"Линия: пройди через зоны (y = kx + b)",
+      world:{xmin:-8, xmax:8, ymin:-8, ymax:8},
+      mission:"zones",
+      zones:[[-4.0, -2.0, 0.3], [3.0, 2.0, 0.3]],
+      player_spec:[Param("k", -3, 3, 0.05, 0.2), Param("b", -5, 5, 0.1, 0.0)],
+      hint_kind:"line",
+      hide_target:true
+    });
+
+    LEVELS.push({
+      name:"Линия: обойди запрет (y = kx + b)",
+      world:{xmin:-8, xmax:8, ymin:-8, ymax:8},
+      mission:"forbid",
+      forbid_rects:[[-2.5, -1.0, 2.5, 1.0]],
+      must_zones:[[6.0, 3.0, 0.35]],
+      player_spec:[Param("k", -3, 3, 0.05, 0.5), Param("b", -5, 5, 0.1, -1.0)],
+      hint_kind:"line",
+      hide_target:true
+    });
+  }
+
+  function quad_levels(){
+    LEVELS.push({
+      name:"Парабола: растяжение (y = ax²)",
+      world:{xmin:-8, xmax:8, ymin:-8, ymax:12},
+      target:{type:"qa", func:f_quad_a, params:{a:1.8}},
+      pass_err:1.0,
+      player_spec:[Param("a", 0.5, 3, 0.05, 1.0)],
+      hint_kind:"quad",
+    });
+
+    LEVELS.push({
+      name:"Парабола: вертикальный сдвиг (y = x² + c)",
+      world:{xmin:-8, xmax:8, ymin:-8, ymax:16},
+      target:{type:"qshift", func:f_quad_shift_v, params:{c:-2.0}},
+      pass_err:1.0,
+      player_spec:[Param("c", -5, 5, 0.1, 0.0)],
+      hint_kind:"quad",
+    });
+
+    LEVELS.push({
+      name:"Парабола: горизонтальный сдвиг (y = (x-h)²)",
+      world:{xmin:-8, xmax:8, ymin:-2, ymax:16},
+      target:{type:"qvx", func:(p,x)=>((x - p.h) ** 2), params:{h:2.5}},
+      pass_err:1.0,
+      player_spec:[Param("h", -5, 5, 0.1, 0.0)],
+      hint_kind:"quad",
+    });
+
+    LEVELS.push({
+      name:"Парабола: вершинная форма (y = a(x-h)² + k)",
+      world:{xmin:-8, xmax:8, ymin:-6, ymax:16},
+      target:{type:"qv", func:f_quad_vertex, params:{a:1.2, h:-1.5, k:3.0}},
+      pass_err:1.2,
+      player_spec:[
+        Param("a", 0.5, 3, 0.05, 1.0),
+        Param("h", -5, 5, 0.1, 0.0),
+        Param("k", -5, 8, 0.1, 0.0)
+      ],
+      hint_kind:"quad",
+    });
+
+    LEVELS.push({
+      name:"Парабола: пройди через зоны (y = ax² + bx + c)",
+      world:{xmin:-8, xmax:8, ymin:-10, ymax:14},
+      mission:"zones",
+      zones:[[-3.0, 4.0, 0.35],[0.0, -2.0, 0.35],[3.0, 5.0, 0.35]],
+      player_spec:[
+        Param("a", -2.5, 2.5, 0.05, 1.0),
+        Param("b", -5, 5, 0.05, 0.0),
+        Param("c", -6, 8, 0.1, 0.0)
+      ],
+      hint_kind:"quad",
+      hide_target:true
+    });
+
+    LEVELS.push({
+      name:"Парабола: обойди запрет (y = ax² + bx + c)",
+      world:{xmin:-8, xmax:8, ymin:-10, ymax:14},
+      mission:"forbid",
+      forbid_rects:[[-4.0, 4.0, 4.0, 6.0]],
+      must_zones:[[-2.0, 1.0, 0.4]],
+      player_spec:[
+        Param("a", -2.5, 2.5, 0.05, 1.0),
+        Param("b", -5, 5, 0.05, 0.0),
+        Param("c", -6, 8, 0.1, 0.0)
+      ],
+      hint_kind:"quad",
+      hide_target:true
+    });
+  }
+
+  lin_levels();
+  quad_levels();
+
+  // ---------------------------- WORLD/МАТЕМАТИКА ----------------------------
+  const world = {xmin:-10.0, xmax:10.0, ymin:-10.0, ymax:10.0};
+
+  function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+  const deg2rad = d => d * Math.PI / 180;
+
+  function w2s(x, y){
+    const xr = (x - world.xmin) / (world.xmax - world.xmin);
+    const yr = (y - world.ymin) / (world.ymax - world.ymin);
+    return [PLOT.x + xr * PLOT.w, PLOT.y + (1 - yr) * PLOT.h];
+  }
+
+  function rmse(target_y, player_y){
+    let sum = 0.0, n = 0;
+    for (let i=0;i<target_y.length;i++){
+      const ty = target_y[i], py = player_y[i];
+      if (ty == null || py == null || !Number.isFinite(ty) || !Number.isFinite(py)) continue;
+      const d = ty - py;
+      sum += d*d;
+      n += 1;
+    }
+    return n ? Math.sqrt(sum / n) : Infinity;
+  }
+
+  function sample_curve(func, params, xs){
+    const ys = [];
+    for (const x of xs){
+      try{
+        const y = func(params, x);
+        ys.push(y);
+      } catch(_e){
+        ys.push(null);
+      }
+    }
+    return ys;
+  }
+
+  function pick_render_func(lvl){
+    if (lvl.mission === "zones" || lvl.mission === "forbid"){
+      const names = lvl.player_spec.map(p=>p.name);
+      const set = new Set(names);
+      const has = (a)=>set.has(a);
+      const hasAll = (arr)=>arr.every(has);
+      if (hasAll(["k","b"])) return f_line;
+      if (names.length===1 && names[0]==="k") return f_line_kx;
+      if (names.length===1 && names[0]==="b") return f_line_xb;
+      if (hasAll(["a","b","c"])) return f_quad_general;
+      if (hasAll(["a","h","k"])) return f_quad_vertex;
+      if (names.length===1 && names[0]==="a") return f_quad_a;
+      if (names.length===1 && names[0]==="c") return f_quad_shift_v;
+      if (names.length===1 && names[0]==="h") return (p,x)=>((x - p.h) ** 2);
+      return f_quad_general;
+    }
+    const t = lvl.target.type;
+    if (t === "line_kx") return f_line_kx;
+    if (t === "line_xb") return f_line_xb;
+    return lvl.target.func;
+  }
+
+  function mission_check_zones(func, params, zones){
+    const xs = [];
+    for (let i=0;i<=400;i++){
+      xs.push(world.xmin + i*(world.xmax-world.xmin)/400);
+    }
+    for (const [zx, zy, rr] of zones){
+      let hit = false;
+      const r2 = rr*rr;
+      for (const x of xs){
+        let y;
+        try{ y = func(params, x); } catch(_e){ y = null; }
+        if (y == null || !Number.isFinite(y)) continue;
+        const dx = x - zx, dy = y - zy;
+        if (dx*dx + dy*dy <= r2){ hit = true; break; }
+      }
+      if (!hit) return false;
+    }
+    return true;
+  }
+
+  function mission_check_forbid(func, params, forbid_rects, must_zones){
+    const xs = [];
+    for (let i=0;i<=400;i++){
+      xs.push(world.xmin + i*(world.xmax-world.xmin)/400);
+    }
+    for (const x of xs){
+      let y;
+      try{ y = func(params, x); } catch(_e){ return false; }
+      if (y == null || !Number.isFinite(y)) continue;
+      for (const [xmin, ymin, xmax, ymax] of forbid_rects){
+        if (xmin <= x && x <= xmax && ymin <= y && y <= ymax) return false;
+      }
+    }
+    if (must_zones && must_zones.length){
+      for (const [zx, zy, rr] of must_zones){
+        let ok = false;
+        const r2 = rr*rr;
+        for (const x of xs){
+          let y;
+          try{ y = func(params, x); } catch(_e){ y = null; }
+          if (y == null || !Number.isFinite(y)) continue;
+          const dx = x - zx, dy = y - zy;
+          if (dx*dx + dy*dy <= r2){ ok = true; break; }
+        }
+        if (!ok) return false;
+      }
+    }
+    return true;
+  }
+
+  function evaluate_proposal(params){
+    const lvl = LEVELS[level_index];
+    if (lvl.mission === "zones"){
+      const func = pick_render_func(lvl);
+      return [mission_check_zones(func, params, lvl.zones), 0.0];
+    }
+    if (lvl.mission === "forbid"){
+      const func = pick_render_func(lvl);
+      return [mission_check_forbid(func, params, lvl.forbid_rects, lvl.must_zones), 0.0];
+    }
+
+    const xs = [];
+    for (let i=0;i<=200;i++){
+      xs.push(world.xmin + i*(world.xmax-world.xmin)/200);
+    }
+    const func_player = pick_render_func(lvl);
+    const yp = sample_curve(func_player, params, xs);
+    const yt = sample_curve(lvl.target.func, lvl.target.params, xs);
+    const e = rmse(yt, yp);
+    return [e < (lvl.pass_err ?? 1.0), e];
+  }
+
+  // ---------------------------- ЗВЁЗДЫ/ОЦЕНКА ----------------------------
+  function stars_for_finish(atts, hints){
+    if (atts <= 2 && hints === 0) return 3;
+    if (atts <= 3 && hints <= 1) return 2;
+    if (atts <= ATTEMPT_LIMIT) return 1;
+    return 0;
+  }
+
+  function total_stars(){ return stars_per_level.reduce((a,b)=>a+b,0); }
+
+  function grade_comment(total){
+    if (total >= 30) return "Превосходно! Ты настоящий мастер графиков!";
+    if (total >= 23) return "Отлично! Уверенно управляешь параметрами функций.";
+    if (total >= 17) return "Хорошо! Ещё немного практики — и станешь экспертом.";
+    if (total >= 10) return "Неплохой прогресс! Экономь проверки и анализируй графики.";
+    return "Начало положено! Изучи теорию и пробуй снова.";
+  }
+
+  // ---------------------------- ПОДСКАЗКИ ----------------------------
+  function param_status(target_val, player_val, name){
+    const eps = 1e-2;
+    if (Math.abs(target_val - player_val) <= eps) return `${name}: ✓`;
+    return `${name}: ${player_val < target_val ? "↑ увеличь" : "↓ уменьши"}`;
+  }
+
+  function consume_hint(){
+    if (state !== "tune" || hints_used >= HINT_LIMIT){
+      last_hint_text = "Подсказки закончились";
+      return;
+    }
+    hints_used += 1;
+    const lvl = LEVELS[level_index];
+
+    if (lvl.target && !lvl.hide_target){
+      const out = [];
+      const tv = lvl.target.params || {};
+      for (const p of param_specs){
+        if (Object.prototype.hasOwnProperty.call(tv, p.name)){
+          out.push(param_status(tv[p.name], editing_params[p.name], p.name));
+        } else {
+          out.push(`${p.name}: ✓`);
+        }
+      }
+      last_hint_text = out.join("  •  ");
+    } else {
+      const names = param_specs.map(p=>p.name);
+      const set = new Set(names);
+      const hasAll = (arr)=>arr.every(n=>set.has(n));
+      if (hasAll(["k","b"])){
+        last_hint_text = "k — наклон линии, b — вертикальный сдвиг";
+      } else if (hasAll(["a","b","c"])){
+        last_hint_text = "a — растяжение, b — наклон оси, c — вертикальный сдвиг";
+      } else if (hasAll(["a","h","k"])){
+        last_hint_text = "h,k — координаты вершины, a — растяжение";
+      } else {
+        last_hint_text = "Подбирай параметры, чтобы график прошёл через все зоны";
+      }
+    }
+  }
+
+  // ---------------------------- СЛАЙДЕРЫ ----------------------------
+  function slider_rect(i){
+    return {
+      x: SL_PANEL.x + 20,
+      y: SL_PANEL.y + 80 + i * SL_LINE_H,
+      w: SL_PANEL.w - 40,
+      h: 12
+    };
+  }
+
+  function snap_to_step(p, val){
+    const t = (val - p.vmin) / p.step;
+    const steps = Math.round(t);
+    const snapped = p.vmin + steps * p.step;
+    const clamped = clamp(snapped, p.vmin, p.vmax);
+    const decimals = Math.max(0, (p.step.toString().split(".")[1] || "").length);
+    return Number(clamped.toFixed(Math.min(6, decimals + 2)));
+  }
+
+  function value_to_x(p, val){
+    const t = (val - p.vmin) / (p.vmax - p.vmin);
+    const r = slider_rect(param_names.indexOf(p.name));
+    return r.x + t * r.w;
+  }
+
+  function x_to_value(p, sx){
+    const r = slider_rect(param_names.indexOf(p.name));
+    const t = clamp((sx - r.x) / r.w, 0.0, 1.0);
+    const raw = p.vmin + t * (p.vmax - p.vmin);
+    return snap_to_step(p, raw);
+  }
+
+  // ---------------------------- СБРОС УРОВНЯ ----------------------------
+  function reset_level(hard=true){
+    const lvl = LEVELS[level_index];
+    world.xmin = lvl.world?.xmin ?? -10;
+    world.xmax = lvl.world?.xmax ?? 10;
+    world.ymin = lvl.world?.ymin ?? -10;
+    world.ymax = lvl.world?.ymax ?? 10;
+
+    param_specs = lvl.player_spec;
+    editing_params = make_params(param_specs);
+    committed_params = {...editing_params};
+    param_names = param_specs.map(p=>p.name);
+    active_param_idx = 0;
+
+    if (hard){
+      attempts_used = 0;
+      hints_used = 0;
+    }
+    last_hint_text = "";
+    THEORY_SCROLL = 0;
+    INTRO_SCROLL = 0;
+    dragging_name = null;
+    state_before_theory = null;
+
+    state = "tune";
+  }
+
+  function goto_level(idx){
+    level_index = idx;
+    reset_level(true);
+  }
+
+  reset_level(true);
+  state = "intro";
+
+  // ---------------------------- CANVAS ----------------------------
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  document.title = TITLE;
+
+  function resizeCanvasToCSS(){
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const realW = Math.max(1, Math.round(rect.width * dpr));
+    const realH = Math.max(1, Math.round(rect.height * dpr));
+    if (canvas.width !== realW || canvas.height !== realH){
+      canvas.width = realW;
+      canvas.height = realH;
+    }
+    ctx.setTransform(realW / WIDTH, 0, 0, realH / HEIGHT, 0, 0);
+  }
+  window.addEventListener("resize", resizeCanvasToCSS);
+  resizeCanvasToCSS();
+
+  // ---------------------------- ПРИМИТИВЫ РИСОВАНИЯ ----------------------------
+  function drawText(text, x, y, opts = {}){
+    const {
+      color = COLORS.textPrimary,
+      fontsize = 16,
+      align = "left",
+      baseline = "top",
+      owidth = 0,
+      ocolor = "rgba(0,0,0,0.3)",
+      weight = 600
+    } = opts;
+
+    ctx.font = `${weight} ${fontsize}px "Nunito Variable", "Nunito", sans-serif`;
+    ctx.textAlign = align;
+    ctx.textBaseline = baseline;
+
+    if (owidth > 0){
+      ctx.lineWidth = owidth * 2;
+      ctx.strokeStyle = ocolor;
+      ctx.strokeText(text, x, y);
+      ctx.lineWidth = 1;
+    }
+
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+  }
+
+  function fillRect(x, y, w, h, color){
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, w, h);
+  }
+
+  function roundedRect(x, y, w, h, r, fill, stroke, strokeWidth = 2){
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
+    if (fill){
+      ctx.fillStyle = fill;
+      ctx.fill();
+    }
+    if (stroke){
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = strokeWidth;
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+  }
+
+  function line(x1, y1, x2, y2, color, width=1, dash=null){
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    if (dash) ctx.setLineDash(dash); else ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function filledCircle(x, y, r, color){
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  function strokedCircle(x, y, r, color, width=1){
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+
+  function drawStar(cx, cy, r, filled){
+    const pts = [];
+    for (let i = 0; i < 10; i++){
+      const ang = deg2rad(-90 + i*36);
+      const rr = (i % 2 === 0) ? r : r * 0.45;
+      pts.push({x: cx + rr*Math.cos(ang), y: cy + rr*Math.sin(ang)});
+    }
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.closePath();
+    
+    if (filled){
+      const grad = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+      grad.addColorStop(0, COLORS.starGoldBright);
+      grad.addColorStop(1, COLORS.starGold);
+      ctx.fillStyle = grad;
+      ctx.shadowColor = 'rgba(244, 162, 97, 0.6)';
+      ctx.shadowBlur = 10;
+    } else {
+      ctx.fillStyle = COLORS.starEmpty;
+      ctx.shadowBlur = 0;
+    }
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    
+    ctx.strokeStyle = filled ? '#D68C45' : '#6C757D';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+
+  function wrapText(text, maxLen = 50){
+    const words = text.split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = "";
+    for (const w of words){
+      if ((cur.length + w.length + (cur ? 1 : 0)) <= maxLen){
+        cur = cur ? (cur + " " + w) : w;
+      } else {
+        if (cur) lines.push(cur);
+        cur = w;
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
+  // ===================== ИКОНКИ И МИНИ-ГРАФИКА =====================
+
+  // Мини-график линии
+  function drawIconLine(x, y, size, k = 1){
+    ctx.save();
+    ctx.translate(x, y);
+    
+    // Рамка
+    ctx.strokeStyle = COLORS.plotBorder;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(-size/2, -size/2, size, size);
+    
+    // Оси
+    ctx.strokeStyle = COLORS.axisDark;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-size/2, 0);
+    ctx.lineTo(size/2, 0);
+    ctx.moveTo(0, -size/2);
+    ctx.lineTo(0, size/2);
+    ctx.stroke();
+    
+    // Линия y = kx
+    ctx.strokeStyle = COLORS.playerCurve;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-size/2, size/2 * k);
+    ctx.lineTo(size/2, -size/2 * k);
+    ctx.stroke();
+    
+    ctx.restore();
+  }
+
+  // Мини-график параболы
+  function drawIconParabola(x, y, size, a = 1){
+    ctx.save();
+    ctx.translate(x, y);
+    
+    // Рамка
+    ctx.strokeStyle = COLORS.plotBorder;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(-size/2, -size/2, size, size);
+    
+    // Оси
+    ctx.strokeStyle = COLORS.axisDark;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-size/2, 0);
+    ctx.lineTo(size/2, 0);
+    ctx.moveTo(0, -size/2);
+    ctx.lineTo(0, size/2);
+    ctx.stroke();
+    
+    // Парабола
+    ctx.strokeStyle = COLORS.playerCurve;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = -20; i <= 20; i++){
+      const px = i * size / 40;
+      const py = -a * (i/10) * (i/10) * size / 8;
+      if (i === -20) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    
+    ctx.restore();
+  }
+
+  // Иконка слайдера/ручки настройки
+  function drawIconSlider(x, y, w, h, value = 0.5){
+    ctx.save();
+    ctx.translate(x, y);
+    
+    // Трек
+    roundedRect(-w/2, -h/2, w, h, h/2, COLORS.sliderBg, COLORS.plotBorder, 1);
+    
+    // Заполнение
+    const fillW = w * value;
+    ctx.beginPath();
+    ctx.roundRect(-w/2, -h/2, fillW, h, h/2);
+    const grad = ctx.createLinearGradient(-w/2, 0, -w/2 + fillW, 0);
+    grad.addColorStop(0, '#4CC9F0');
+    grad.addColorStop(1, '#4361EE');
+    ctx.fillStyle = grad;
+    ctx.fill();
+    
+    // Ручка
+    const handleX = -w/2 + fillW;
+    filledCircle(handleX, 0, h * 0.8, COLORS.sliderHandle);
+    filledCircle(handleX - 2, -2, h * 0.3, 'rgba(255,255,255,0.4)');
+    
+    ctx.restore();
+  }
+
+  // Иконка цели/мишени
+  function drawIconTarget(x, y, size){
+    ctx.save();
+    ctx.translate(x, y);
+    
+    // Внешний круг
+    strokedCircle(0, 0, size, COLORS.targetCurve, 2);
+    strokedCircle(0, 0, size * 0.6, COLORS.targetCurve, 2);
+    filledCircle(0, 0, size * 0.25, COLORS.targetCurve);
+    
+    ctx.restore();
+  }
+
+  // Иконка клавиши
+  function drawKey(x, y, text, width = 40){
+    const h = 26;
+    const w = width;
+    
+    // Тень
+    roundedRect(x + 2, y + 2, w, h, 5, 'rgba(0,0,0,0.2)', null);
+    
+    // Клавиша
+    const grad = ctx.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, COLORS.keyBgLight);
+    grad.addColorStop(1, COLORS.keyBg);
+    roundedRect(x, y, w, h, 5, grad, 'rgba(255,255,255,0.2)', 1);
+    
+    drawText(text, x + w/2, y + h/2, {
+      align: 'center', baseline: 'middle',
+      color: COLORS.keyText, fontsize: text.length > 3 ? 10 : 12, weight: 700
+    });
+  }
+
+  // Формула y = kx + b стилизованная
+  function drawFormula(x, y, formula, size = 18){
+    const parts = formula.split(/([=+\-×·])/);
+    let cx = x;
+    for (const part of parts){
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      
+      let color = COLORS.textPrimary;
+      let weight = 700;
+      
+      if (/^[a-z]$/.test(trimmed)){
+        // Переменные
+        if (trimmed === 'y') color = COLORS.textGreen;
+        else if (trimmed === 'x') color = COLORS.textBlue;
+        else color = COLORS.textGold;
+      } else if (/^[=+\-×·]$/.test(trimmed)){
+        color = COLORS.textSecondary;
+        weight = 400;
+      }
+      
+      drawText(trimmed, cx, y, {
+        color, fontsize: size, weight, baseline: 'middle'
+      });
+      cx += ctx.measureText(trimmed).width + 3;
+    }
+  }
+
+  // ---------------------------- ФОН ----------------------------
+  function draw_background(){
+    const grad = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+    grad.addColorStop(0, COLORS.bgTop);
+    grad.addColorStop(0.5, COLORS.bgMiddle);
+    grad.addColorStop(1, COLORS.bgBottom);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    
+    // Декоративные круги (математический паттерн)
+    ctx.globalAlpha = 0.03;
+    for (let i = 0; i < 6; i++){
+      const cx = 100 + i * 180 + Math.sin(animTime + i) * 10;
+      const cy = 100 + Math.cos(animTime * 0.7 + i * 0.5) * 20;
+      strokedCircle(cx, cy, 40 + i * 10, COLORS.textBlue, 2);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ---------------------------- РЕНДЕР ОСЕЙ/СЕТКИ ----------------------------
+  function draw_axes(){
+    // Фон области графика с тенью
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+    ctx.shadowBlur = 20;
+    ctx.shadowOffsetY = 5;
+    roundedRect(PLOT.x - 5, PLOT.y - 5, PLOT.w + 10, PLOT.h + 10, 12, COLORS.plotBg, COLORS.plotBorder, 2);
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+
+    // Сетка
+    const gx0 = Math.floor(world.xmin);
+    const gx1 = Math.ceil(world.xmax);
+    for (let gx = gx0; gx <= gx1; gx++){
+      const [x0,y0] = w2s(gx, world.ymin);
+      const [x1,y1] = w2s(gx, world.ymax);
+      const col = (gx===0) ? COLORS.gridMajor : COLORS.gridMinor;
+      line(x0,y0,x1,y1,col,1);
+    }
+    const gy0 = Math.floor(world.ymin);
+    const gy1 = Math.ceil(world.ymax);
+    for (let gy = gy0; gy <= gy1; gy++){
+      const [x0,y0] = w2s(world.xmin, gy);
+      const [x1,y1] = w2s(world.xmax, gy);
+      const col = (gy===0) ? COLORS.gridMajor : COLORS.gridMinor;
+      line(x0,y0,x1,y1,col,1);
+    }
+
+    // Оси (толстые)
+    let [x0,y0] = w2s(world.xmin, 0);
+    let [x1,y1] = w2s(world.xmax, 0);
+    line(x0,y0,x1,y1,COLORS.axisDark, 2);
+    
+    [x0,y0] = w2s(0, world.ymin);
+    [x1,y1] = w2s(0, world.ymax);
+    line(x0,y0,x1,y1,COLORS.axisDark, 2);
+    
+    // Подписи осей
+    const [endX] = w2s(world.xmax, 0);
+    drawText("x", endX - 15, y0 - 20, {color: COLORS.axisDark, fontsize: 16, weight: 700});
+    const [,endY] = w2s(0, world.ymax);
+    drawText("y", x1 + 10, endY + 5, {color: COLORS.axisDark, fontsize: 16, weight: 700});
+  }
+
+  function draw_curve_lines(xs, ys, color, width=2, dotted=false, glow=false){
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(PLOT.x, PLOT.y, PLOT.w, PLOT.h);
+    ctx.clip();
+
+    if (glow){
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 10;
+    }
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.setLineDash(dotted ? [10, 6] : []);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    let started = false;
+    ctx.beginPath();
+    for (let i=0;i<xs.length;i++){
+      const y = ys[i];
+      if (y == null || !Number.isFinite(y)) { started = false; continue; }
+      const [sx, sy] = w2s(xs[i], y);
+      if (!started){
+        ctx.moveTo(sx, sy);
+        started = true;
+      } else {
+        ctx.lineTo(sx, sy);
+      }
+    }
+    if (started) ctx.stroke();
+
+    ctx.restore();
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    ctx.shadowBlur = 0;
+  }
+
+  // ---------------------------- UI ----------------------------
+  function instruction_text(){
+    const lvl = LEVELS[level_index];
+    if (lvl.mission === "zones") return "Проведи график через все зелёные зоны";
+    if (lvl.mission === "forbid") return "Обойди красную зону и попади в зелёную";
+    return "Совмести зелёный график с красным пунктиром";
+  }
+
+  function draw_ui_header(){
+    // Верхняя панель
+    roundedRect(10, 10, WIDTH - 20, 70, 12, 'rgba(255,255,255,0.9)', COLORS.plotBorder, 1);
+    
+    // Уровень
+    drawText(`Уровень ${level_index+1}`, 25, 20, {
+      color: COLORS.textBlue, fontsize: 14, weight: 700
+    });
+    drawText(LEVELS[level_index].name, 25, 40, {
+      color: COLORS.textPrimary, fontsize: 18, weight: 700
+    });
+    
+    // Центр: инструкция
+    drawText(instruction_text(), WIDTH/2, 25, {
+      align: 'center', color: COLORS.textSecondary, fontsize: 14, weight: 600
+    });
+    
+    // Статистика справа
+    const rx = WIDTH - 25;
+    
+    // Проверки
+    const attColor = attempts_used >= ATTEMPT_LIMIT - 1 ? COLORS.textAccent : COLORS.textPrimary;
+    drawText(`Проверки: ${attempts_used}/${ATTEMPT_LIMIT}`, rx, 18, {
+      align: 'right', color: attColor, fontsize: 14
+    });
+    
+    // Подсказки
+    drawText(`Подсказки: ${hints_used}/${HINT_LIMIT}`, rx, 38, {
+      align: 'right', color: COLORS.textSecondary, fontsize: 14
+    });
+    
+    // Звёзды
+    for (let i = 0; i < 3; i++){
+      drawStar(rx - 105 + i * 22, 62, 9, i < stars_per_level[level_index]);
+    }
+    
+    // Сумма звёзд
+    drawText(`Σ ${total_stars()}`, rx, 58, {
+      align: 'right', color: COLORS.textGold, fontsize: 14, weight: 700
+    });
+  }
+
+  function draw_footer(){
+    const y = PLOT.y + PLOT.h + 15;
+    
+    // Панель управления
+    roundedRect(PLOT.x - 5, y, PLOT.w + 10, 95, 10, 'rgba(255,255,255,0.85)', COLORS.plotBorder, 1);
+    
+    // Клавиши
+    let kx = PLOT.x + 10;
+    const ky = y + 12;
+    
+    drawKey(kx, ky, "↑↓", 35);
+    drawText("параметр", kx + 40, ky + 7, {color: COLORS.textSecondary, fontsize: 11});
+    kx += 100;
+    
+    drawKey(kx, ky, "←→", 35);
+    drawText("значение", kx + 40, ky + 7, {color: COLORS.textSecondary, fontsize: 11});
+    kx += 100;
+    
+    drawKey(kx, ky, "ПРОБЕЛ", 60);
+    drawText("проверить", kx + 65, ky + 7, {color: COLORS.textSecondary, fontsize: 11});
+    kx += 135;
+    
+    drawKey(kx, ky, "H", 28);
+    drawText("подсказка", kx + 33, ky + 7, {color: COLORS.textSecondary, fontsize: 11});
+    kx += 95;
+    
+    drawKey(kx, ky, "T", 28);
+    drawText("теория", kx + 33, ky + 7, {color: COLORS.textSecondary, fontsize: 11});
+    kx += 80;
+    
+    drawKey(kx, ky, "R", 28);
+    drawText("сброс", kx + 33, ky + 7, {color: COLORS.textSecondary, fontsize: 11});
+    
+    // Подсказка (если есть)
+    if (last_hint_text){
+      const hintY = y + 50;
+      roundedRect(PLOT.x + 5, hintY, PLOT.w - 10, 35, 8, 'rgba(67, 97, 238, 0.12)', COLORS.textBlue, 1);
+      drawText("💡 " + last_hint_text, PLOT.x + PLOT.w/2, hintY + 17, {
+        align: 'center', baseline: 'middle',
+        color: COLORS.textBlue, fontsize: 14, weight: 600
+      });
+    }
+  }
+
+  function draw_sliders(){
+    // Панель параметров
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+    ctx.shadowBlur = 15;
+    ctx.shadowOffsetY = 5;
+    roundedRect(SL_PANEL.x, SL_PANEL.y, SL_PANEL.w, SL_PANEL.h, 16, 'rgba(255,255,255,0.95)', COLORS.plotBorder, 2);
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    
+    // Заголовок
+    drawText("Параметры", SL_PANEL.x + SL_PANEL.w/2, SL_PANEL.y + 20, {
+      align: 'center', color: COLORS.textPrimary, fontsize: 18, weight: 700
+    });
+    
+    // Слайдеры
+    for (let i=0;i<param_specs.length;i++){
+      const p = param_specs[i];
+      const r = slider_rect(i);
+      const sel = (i === active_param_idx);
+      const val = editing_params[p.name];
+      const t = (val - p.vmin) / (p.vmax - p.vmin);
+
+      // Название и значение
+      const signVal = (val >= 0 ? "+" : "") + val.toFixed(2);
+      
+      // Подсветка активного
+      if (sel){
+        roundedRect(r.x - 10, r.y - 30, r.w + 20, 58, 8, 'rgba(67, 97, 238, 0.1)', COLORS.textBlue, 1);
+      }
+      
+      drawText(p.name, r.x, r.y - 22, {
+        color: sel ? COLORS.textBlue : COLORS.textPrimary, 
+        fontsize: 16, weight: 700
+      });
+      drawText(signVal, r.x + r.w, r.y - 22, {
+        align: 'right',
+        color: sel ? COLORS.textBlue : COLORS.textSecondary, 
+        fontsize: 16, weight: 600
+      });
+
+      // Трек слайдера
+      roundedRect(r.x, r.y, r.w, r.h, r.h/2, COLORS.sliderTrack, null);
+      
+      // Заполненная часть
+      const fillW = Math.max(r.h, t * r.w);
+      ctx.beginPath();
+      ctx.roundRect(r.x, r.y, fillW, r.h, r.h/2);
+      const grad = ctx.createLinearGradient(r.x, 0, r.x + fillW, 0);
+      grad.addColorStop(0, '#4CC9F0');
+      grad.addColorStop(1, '#4361EE');
+      ctx.fillStyle = grad;
+      ctx.fill();
+      
+      // Ручка
+      const handleX = r.x + t * r.w;
+      const handleR = sel ? 10 : 8;
+      
+      ctx.shadowColor = 'rgba(0,0,0,0.2)';
+      ctx.shadowBlur = 5;
+      ctx.shadowOffsetY = 2;
+      filledCircle(handleX, r.y + r.h/2, handleR, sel ? COLORS.sliderHandleActive : COLORS.sliderHandle);
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+      
+      // Блик на ручке
+      filledCircle(handleX - 2, r.y + r.h/2 - 2, handleR * 0.3, 'rgba(255,255,255,0.5)');
+      
+      // Диапазон
+      drawText(p.vmin.toString(), r.x, r.y + r.h + 5, {
+        color: COLORS.textSecondary, fontsize: 11
+      });
+      drawText(p.vmax.toString(), r.x + r.w, r.y + r.h + 5, {
+        align: 'right', color: COLORS.textSecondary, fontsize: 11
+      });
+    }
+    
+    // Инструкция внизу панели
+    const tipY = SL_PANEL.y + SL_PANEL.h - 50;
+    drawText("Настрой параметры", SL_PANEL.x + SL_PANEL.w/2, tipY, {
+      align: 'center', color: COLORS.textSecondary, fontsize: 13
+    });
+    drawText("и нажми ПРОБЕЛ", SL_PANEL.x + SL_PANEL.w/2, tipY + 18, {
+      align: 'center', color: COLORS.textSecondary, fontsize: 13
+    });
+  }
+
+  function draw_target_and_player(){
+    const lvl = LEVELS[level_index];
+    const xs = [];
+    for (let i=0;i<=640;i++){
+      xs.push(world.xmin + i*(world.xmax-world.xmin)/640);
+    }
+
+    // Цель (красный пунктир)
+    if (lvl.target && !lvl.hide_target){
+      const ys = sample_curve(lvl.target.func, lvl.target.params, xs);
+      draw_curve_lines(xs, ys, COLORS.targetCurve, 3, true, false);
+    }
+
+    // Игрок (зелёная линия)
+    const func = pick_render_func(lvl);
+    const ysP = sample_curve(func, committed_params, xs);
+    draw_curve_lines(xs, ysP, COLORS.playerCurve, 3, false, true);
+
+    // Зоны
+    if (lvl.mission === "zones"){
+      for (const [zx, zy, rr] of lvl.zones){
+        const [sx, sy] = w2s(zx, zy);
+        const rad = Math.max(8, rr * PLOT.w / (world.xmax-world.xmin));
+        
+        // Свечение
+        ctx.shadowColor = COLORS.zoneGreen;
+        ctx.shadowBlur = 15;
+        filledCircle(sx, sy, rad + 5, COLORS.zoneGreenLight);
+        ctx.shadowBlur = 0;
+        
+        strokedCircle(sx, sy, rad, COLORS.zoneGreen, 3);
+        filledCircle(sx, sy, 4, COLORS.zoneGreen);
+      }
+    }
+    
+    // Запретные зоны
+    if (lvl.mission === "forbid"){
+      for (const [xmin,ymin,xmax,ymax] of lvl.forbid_rects){
+        const [x0, y0] = w2s(xmin, ymax);
+        const [x1, y1] = w2s(xmax, ymin);
+        const rx = Math.min(x0,x1);
+        const ry = Math.min(y0,y1);
+        const rw = Math.abs(x1-x0);
+        const rh = Math.abs(y1-y0);
+
+        // Диагональные полосы
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(rx, ry, rw, rh);
+        ctx.clip();
+        
+        ctx.fillStyle = COLORS.forbidRedLight;
+        ctx.fillRect(rx, ry, rw, rh);
+        
+        ctx.strokeStyle = COLORS.forbidRed;
+        ctx.lineWidth = 1;
+        for (let i = -rh; i < rw; i += 12){
+          ctx.beginPath();
+          ctx.moveTo(rx + i, ry);
+          ctx.lineTo(rx + i + rh, ry + rh);
+          ctx.stroke();
+        }
+        ctx.restore();
+        
+        ctx.strokeStyle = COLORS.forbidRed;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(rx, ry, rw, rh);
+        ctx.lineWidth = 1;
+      }
+      
+      // Обязательные зоны
+      if (lvl.must_zones){
+        for (const [zx, zy, rr] of lvl.must_zones){
+          const [sx, sy] = w2s(zx, zy);
+          const rad = Math.max(8, rr * PLOT.w / (world.xmax-world.xmin));
+          
+          ctx.shadowColor = COLORS.zoneGreen;
+          ctx.shadowBlur = 15;
+          filledCircle(sx, sy, rad + 5, COLORS.zoneGreenLight);
+          ctx.shadowBlur = 0;
+          
+          strokedCircle(sx, sy, rad, COLORS.zoneGreen, 3);
+          filledCircle(sx, sy, 4, COLORS.zoneGreen);
+        }
+      }
+    }
+  }
+
+  // ---------------------------- ОВЕРЛЕИ ----------------------------
+  function draw_win_overlay(){
+    const box = {x:150, y:250, w:420, h:150};
+    
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 30;
+    roundedRect(box.x, box.y, box.w, box.h, 20, COLORS.successBg, COLORS.successBorder, 3);
+    ctx.shadowBlur = 0;
+
+    drawText("Отлично!", box.x + box.w/2, box.y + 35, {
+      align:"center", baseline:"middle",
+      color: COLORS.textLight, fontsize: 32,
+      weight: 800,
+      owidth: 2, ocolor: "rgba(0,0,0,0.2)"
+    });
+
+    const st = stars_for_finish(attempts_used, hints_used);
+    for (let i = 0; i < 3; i++){
+      drawStar(box.x + box.w/2 - 40 + i*40, box.y + 80, 16, i < st);
+    }
+    
+    drawText("ПРОБЕЛ — дальше   R — повторить", box.x + box.w/2, box.y + box.h - 20, {
+      align:"center", baseline:"middle",
+      color: 'rgba(255,255,255,0.8)', fontsize: 14
+    });
+  }
+
+  function draw_fail_overlay(){
+    const box = {x:150, y:260, w:420, h:110};
+    
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 25;
+    roundedRect(box.x, box.y, box.w, box.h, 20, COLORS.failBg, COLORS.failBorder, 3);
+    ctx.shadowBlur = 0;
+    
+    drawText("Попытки закончились", box.x + box.w/2, box.y + 35, {
+      align:"center", baseline:"middle",
+      color: COLORS.textLight, fontsize: 26, weight: 700
+    });
+    
+    drawText("ПРОБЕЛ — следующий уровень   R — заново", box.x + box.w/2, box.y + 75, {
+      align:"center", baseline:"middle",
+      color: 'rgba(255,255,255,0.8)', fontsize: 14
+    });
+  }
+
+  function draw_final_overlay(){
+    fillRect(0, 0, WIDTH, HEIGHT, 'rgba(15, 25, 45, 0.95)');
+    
+    const total = total_stars();
+    const box = {x:200, y:100, w:600, h:450};
+    
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 40;
+    roundedRect(box.x, box.y, box.w, box.h, 20, COLORS.infoBg, COLORS.infoBorder, 3);
+    ctx.shadowBlur = 0;
+
+    drawText("Курс завершён!", box.x + box.w/2, box.y + 45, {
+      align:"center", baseline:"middle",
+      color: COLORS.textLight, fontsize: 34, weight: 800
+    });
+    
+    // Иконка графика
+    drawIconParabola(box.x + box.w/2, box.y + 110, 80, 0.8);
+    
+    drawText(`Результат: ${total} из ${LEVELS.length * 3}`, box.x + box.w/2, box.y + 175, {
+      align:"center", baseline:"middle",
+      color: COLORS.starGoldBright, fontsize: 28, weight: 700
+    });
+    
+    // Звёзды по уровням
+    const cols = 6, rows = 2;
+    const cellW = Math.floor((box.w - 60) / cols);
+    const startY = box.y + 220;
+    
+    let idx = 0;
+    for (let r = 0; r < rows; r++){
+      for (let c = 0; c < cols; c++){
+        if (idx >= LEVELS.length) break;
+        const cx = box.x + 30 + c * cellW + cellW/2;
+        const cy = startY + r * 55;
+        
+        drawText(String(idx + 1), cx, cy - 12, {
+          align:"center", baseline:"middle",
+          color: 'rgba(255,255,255,0.6)', fontsize: 14, weight: 600
+        });
+
+        const got = stars_per_level[idx];
+        for (let s = 0; s < 3; s++){
+          drawStar(cx - 22 + s*22, cy + 10, 8, s < got);
+        }
+        idx++;
+      }
+    }
+
+    // Комментарий
+    const comment = grade_comment(total);
+    const lines = wrapText(comment, 50);
+    let ly = box.y + 360;
+    for (const line of lines){
+      drawText(line, box.x + box.w/2, ly, {
+        align:"center", baseline:"middle",
+        color: COLORS.textLight, fontsize: 16
+      });
+      ly += 24;
+    }
+
+    drawText("R — начать заново   T — теория", box.x + box.w/2, box.y + box.h - 25, {
+      align:"center", baseline:"middle",
+      color: 'rgba(255,255,255,0.7)', fontsize: 14
+    });
+  }
+
+  // ---------------------------- ИНТРО ----------------------------
+  function draw_intro_overlay(){
+    const box = {x:80, y:40, w:840, h:620};
+    
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+    ctx.shadowBlur = 30;
+    roundedRect(box.x, box.y, box.w, box.h, 20, 'rgba(255,255,255,0.98)', COLORS.plotBorder, 2);
+    ctx.shadowBlur = 0;
+    
+    // Заголовок
+    drawText("График-мастер", box.x + box.w/2, box.y + 35, {
+      align:"center", baseline:"middle",
+      color: COLORS.textPrimary, fontsize: 32, weight: 800
+    });
+    
+    // Анимированная иконка графика
+    const iconAngle = Math.sin(animTime * 2) * 0.3;
+    drawIconLine(box.x + box.w/2 - 50, box.y + 85, 50, 0.8 + iconAngle);
+    drawIconParabola(box.x + box.w/2 + 50, box.y + 85, 50, 1 + iconAngle * 0.5);
+    
+    // Контент с прокруткой
+    const contentY = box.y + 130;
+    const contentH = box.h - 200;
+    
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(box.x + 20, contentY, box.w - 40, contentH);
+    ctx.clip();
+    
+    const sections = [
+      {
+        icon: "target",
+        title: "Цель игры",
+        text: "Управляй графиком функции, меняя его параметры. Представь, что параметры — это ручки настройки на пульте: крутишь одну — график наклоняется, крутишь другую — сдвигается вверх или вниз."
+      },
+      {
+        icon: "colors",
+        title: "Что означают цвета",
+        items: [
+          {color: COLORS.playerCurve, text: "Зелёный график — твой, им управляешь"},
+          {color: COLORS.targetCurve, text: "Красный пунктир — цель (совмести с ней)"},
+          {color: COLORS.zoneGreen, text: "Зелёные круги — зоны, через которые нужно пройти"},
+          {color: COLORS.forbidRed, text: "Красные области — запретные зоны"}
+        ]
+      },
+      {
+        icon: "keys",
+        title: "Управление",
+        text: "Стрелки ↑↓ выбирают параметр, ←→ меняют его значение. Мышью можно перетаскивать ползунки. ПРОБЕЛ фиксирует изменения и проверяет результат."
+      },
+      {
+        icon: "stars",
+        title: "Система оценки",
+        items: [
+          {stars: 3, text: "Решено за 1-2 попытки без подсказок"},
+          {stars: 2, text: "Решено за 3 попытки или с 1 подсказкой"},
+          {stars: 1, text: "Уровень пройден, но с трудом"}
+        ]
+      },
+      {
+        icon: "tip",
+        title: "Советы",
+        text: "У тебя 5 попыток и 3 подсказки на уровень. Анализируй, как параметры влияют на график, прежде чем проверять. Нажми T в любой момент, чтобы открыть подробную теорию."
+      }
+    ];
+    
+    let y = contentY + 10 - INTRO_SCROLL * 30;
+    
+    for (const section of sections){
+      if (y > contentY - 100 && y < contentY + contentH + 50){
+        // Иконка
+        if (section.icon === "target"){
+          drawIconTarget(box.x + 50, y + 25, 18);
+        } else if (section.icon === "colors"){
+          filledCircle(box.x + 50, y + 25, 12, COLORS.playerCurve);
+        } else if (section.icon === "keys"){
+          drawKey(box.x + 35, y + 10, "←→", 35);
+        } else if (section.icon === "stars"){
+          drawStar(box.x + 50, y + 25, 14, true);
+        } else if (section.icon === "tip"){
+          drawText("💡", box.x + 42, y + 15, {fontsize: 22});
+        }
+        
+        // Заголовок секции
+        drawText(section.title, box.x + 85, y + 5, {
+          color: COLORS.textPrimary, fontsize: 18, weight: 700
+        });
+        
+        // Текст или список
+        if (section.text){
+          const lines = wrapText(section.text, 75);
+          let ly = y + 30;
+          for (const line of lines){
+            drawText(line, box.x + 85, ly, {
+              color: COLORS.textSecondary, fontsize: 14, weight: 400
+            });
+            ly += 22;
+          }
+        }
+        
+        if (section.items){
+          let ly = y + 30;
+          for (const item of section.items){
+            if (item.color){
+              filledCircle(box.x + 95, ly + 8, 6, item.color);
+              drawText(item.text, box.x + 115, ly, {
+                color: COLORS.textSecondary, fontsize: 14
+              });
+            } else if (item.stars !== undefined){
+              for (let s = 0; s < 3; s++){
+                drawStar(box.x + 95 + s * 18, ly + 8, 7, s < item.stars);
+              }
+              drawText(item.text, box.x + 160, ly, {
+                color: COLORS.textSecondary, fontsize: 14
+              });
+            }
+            ly += 25;
+          }
+        }
+      }
+      
+      // Высота секции
+      if (section.items){
+        y += 35 + section.items.length * 25;
+      } else {
+        const lineCount = section.text ? wrapText(section.text, 75).length : 1;
+        y += 35 + lineCount * 22;
+      }
+      y += 15; // отступ между секциями
+    }
+    
+    ctx.restore();
+    
+    // Скроллбар
+    const totalH = 450;
+    const visibleH = contentH;
+    if (totalH > visibleH){
+      const scrollH = Math.max(40, visibleH * (visibleH / totalH));
+      const maxScroll = 10;
+      const scrollY = contentY + (INTRO_SCROLL / maxScroll) * (visibleH - scrollH);
+      roundedRect(box.x + box.w - 18, scrollY, 6, scrollH, 3, 'rgba(0,0,0,0.15)', null);
+    }
+    
+    // Кнопка старта
+    const btnY = box.y + box.h - 50;
+    const pulse = 1 + Math.sin(animTime * 3) * 0.02;
+    
+    ctx.save();
+    ctx.translate(box.x + box.w/2, btnY + 15);
+    ctx.scale(pulse, pulse);
+    roundedRect(-100, -18, 200, 36, 18, COLORS.textBlue, null);
+    drawText("Нажми ПРОБЕЛ", 0, 0, {
+      align: 'center', baseline: 'middle',
+      color: COLORS.textLight, fontsize: 16, weight: 700
+    });
+    ctx.restore();
+  }
+
+  // ---------------------------- ТЕОРИЯ ----------------------------
+  function get_theory_lines(){
+    return [
+      {type: "title", text: "Теория: как параметры меняют график"},
+      {type: "spacer"},
+      {type: "section", icon: "line", title: "Линейная функция y = kx + b"},
+      {type: "text", text: "Коэффициент k (наклон) определяет, насколько круто линия поднимается или опускается. Положительный k — линия идёт вверх слева направо, отрицательный — вниз."},
+      {type: "text", text: "Коэффициент b (сдвиг) поднимает или опускает всю линию. Это точка пересечения с осью Y."},
+      {type: "formula", text: "y = kx + b"},
+      {type: "spacer"},
+      {type: "section", icon: "parabola", title: "Квадратичная функция y = ax² + bx + c"},
+      {type: "text", text: "Коэффициент a отвечает за «ширину» параболы и направление. При a > 0 ветви смотрят вверх, при a < 0 — вниз. Чем больше |a|, тем уже парабола."},
+      {type: "text", text: "Коэффициенты b и c влияют на положение вершины. Параметр c — это сдвиг по вертикали."},
+      {type: "spacer"},
+      {type: "section", icon: "vertex", title: "Вершинная форма y = a(x-h)² + k"},
+      {type: "text", text: "Здесь (h, k) — координаты вершины параболы. Параметр h сдвигает параболу по горизонтали, k — по вертикали."},
+      {type: "text", text: "Это удобная форма, когда нужно точно попасть вершиной в заданную точку."},
+      {type: "spacer"},
+      {type: "section", icon: "tip", title: "Полезные советы"},
+      {type: "bullet", text: "Начинай с грубой настройки, потом уточняй"},
+      {type: "bullet", text: "Если график далеко от цели — меняй параметры крупными шагами"},
+      {type: "bullet", text: "Следи за тем, как каждый параметр влияет на форму"},
+      {type: "bullet", text: "Используй подсказки экономно — они влияют на звёзды"},
+    ];
+  }
+
+  function draw_theory_screen(){
+    fillRect(0, 0, WIDTH, HEIGHT, 'rgba(15, 25, 45, 0.98)');
+    
+    const box = {x:60, y:30, w:880, h:600};
+    
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+    ctx.shadowBlur = 30;
+    roundedRect(box.x, box.y, box.w, box.h, 20, 'rgba(255,255,255,0.98)', COLORS.plotBorder, 2);
+    ctx.shadowBlur = 0;
+    
+    // Контент с прокруткой
+    const contentY = box.y + 20;
+    const contentH = box.h - 80;
+    
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(box.x + 20, contentY, box.w - 40, contentH);
+    ctx.clip();
+    
+    const lines = get_theory_lines();
+    let y = contentY + 10 - THEORY_SCROLL * 25;
+    
+    for (const item of lines){
+      if (y > contentY - 50 && y < contentY + contentH + 30){
+        if (item.type === "title"){
+          drawText(item.text, box.x + box.w/2, y + 10, {
+            align: 'center', color: COLORS.textPrimary, fontsize: 24, weight: 800
+          });
+          y += 50;
+        } else if (item.type === "section"){
+          // Иконка
+          if (item.icon === "line"){
+            drawIconLine(box.x + 55, y + 15, 40, 0.7);
+          } else if (item.icon === "parabola"){
+            drawIconParabola(box.x + 55, y + 15, 40, 1);
+          } else if (item.icon === "vertex"){
+            drawIconParabola(box.x + 55, y + 15, 40, 0.8);
+            filledCircle(box.x + 55, y + 5, 5, COLORS.targetCurve);
+          } else if (item.icon === "tip"){
+            drawText("💡", box.x + 47, y + 5, {fontsize: 24});
+          }
+          
+          drawText(item.title, box.x + 90, y + 5, {
+            color: COLORS.textBlue, fontsize: 18, weight: 700
+          });
+          y += 40;
+        } else if (item.type === "text"){
+          const wrapped = wrapText(item.text, 80);
+          for (const line of wrapped){
+            drawText(line, box.x + 50, y, {
+              color: COLORS.textSecondary, fontsize: 15
+            });
+            y += 24;
+          }
+          y += 5;
+        } else if (item.type === "formula"){
+          // Красивая формула
+          roundedRect(box.x + 100, y - 5, 200, 35, 8, 'rgba(67, 97, 238, 0.1)', COLORS.textBlue, 1);
+          drawFormula(box.x + 120, y + 12, item.text, 20);
+          y += 45;
+        } else if (item.type === "bullet"){
+          filledCircle(box.x + 60, y + 8, 4, COLORS.textBlue);
+          drawText(item.text, box.x + 75, y, {
+            color: COLORS.textSecondary, fontsize: 15
+          });
+          y += 28;
+        } else if (item.type === "spacer"){
+          y += 15;
+        }
+      } else {
+        // Пропускаем, но считаем высоту
+        if (item.type === "title") y += 50;
+        else if (item.type === "section") y += 40;
+        else if (item.type === "text"){
+          y += wrapText(item.text, 80).length * 24 + 5;
+        }
+        else if (item.type === "formula") y += 45;
+        else if (item.type === "bullet") y += 28;
+        else if (item.type === "spacer") y += 15;
+      }
+    }
+    
+    ctx.restore();
+    
+    // Скроллбар
+    const maxScroll = 15;
+    const scrollH = Math.max(40, contentH * 0.3);
+    const scrollY = contentY + (THEORY_SCROLL / maxScroll) * (contentH - scrollH);
+    roundedRect(box.x + box.w - 18, scrollY, 6, scrollH, 3, 'rgba(0,0,0,0.15)', null);
+    
+    // Подсказка внизу
+    drawText("↑↓ или колесо мыши — прокрутка     T — вернуться к игре", box.x + box.w/2, box.y + box.h - 30, {
+      align: 'center', color: COLORS.textSecondary, fontsize: 14
+    });
+  }
+
+  // ---------------------------- INPUT ----------------------------
+  function scroll_intro(delta){
+    INTRO_SCROLL = clamp(INTRO_SCROLL + delta, 0, 10);
+  }
+
+  function scroll_theory(delta){
+    THEORY_SCROLL = clamp(THEORY_SCROLL + delta, 0, 15);
+  }
+
+  function start_next_or_final(){
+    if (level_index < LEVELS.length - 1){
+      goto_level(level_index + 1);
+    } else {
+      state = "final";
+    }
+  }
+
+  function onKeyDown(e){
+    const code = e.code;
+    if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space","PageUp","PageDown"].includes(code)){
+      e.preventDefault();
+    }
+
+    // T — теория
+    if (code === "KeyT"){
+      if (state !== "theory"){
+        state_before_theory = state;
+        THEORY_SCROLL = 0;
+        state = "theory";
+      } else {
+        state = state_before_theory || "tune";
+        state_before_theory = null;
+      }
+      return;
+    }
+
+    if (state === "final"){
+      if (code === "KeyR"){
+        for (let i=0;i<stars_per_level.length;i++) stars_per_level[i] = 0;
+        goto_level(0);
+        INTRO_SCROLL = 0;
+        state = "intro";
+      }
+      return;
+    }
+
+    if (state === "win"){
+      if (code === "Space") start_next_or_final();
+      if (code === "KeyR") reset_level(true);
+      return;
+    }
+
+    if (state === "fail"){
+      if (code === "Space") start_next_or_final();
+      if (code === "KeyR") reset_level(true);
+      return;
+    }
+
+    if (state === "theory"){
+      if (code === "ArrowDown") scroll_theory(+1);
+      else if (code === "ArrowUp") scroll_theory(-1);
+      else if (code === "PageDown") scroll_theory(+5);
+      else if (code === "PageUp") scroll_theory(-5);
+      return;
+    }
+
+    if (state === "intro"){
+      if (code === "Space"){
+        state = "tune";
+        return;
+      }
+      if (code === "ArrowDown") scroll_intro(+1);
+      else if (code === "ArrowUp") scroll_intro(-1);
+      return;
+    }
+
+    // ---- state == "tune" ----
+    if (code === "KeyR"){ reset_level(true); return; }
+    if (code === "KeyH"){ consume_hint(); return; }
+
+    if (code === "ArrowUp"){
+      active_param_idx = (active_param_idx - 1 + param_specs.length) % param_specs.length;
+      return;
+    }
+    if (code === "ArrowDown"){
+      active_param_idx = (active_param_idx + 1) % param_specs.length;
+      return;
+    }
+    if (code === "ArrowLeft" || code === "ArrowRight"){
+      const p = param_specs[active_param_idx];
+      const delta = p.step * (code === "ArrowLeft" ? -1 : 1);
+      const next = clamp(editing_params[p.name] + delta, p.vmin, p.vmax);
+      editing_params[p.name] = snap_to_step(p, next);
+      return;
+    }
+
+    if (code === "Space"){
+      if (attempts_used >= ATTEMPT_LIMIT){
+        state = "fail";
+        return;
+      }
+      attempts_used += 1;
+
+      const [passed, _err] = evaluate_proposal(editing_params);
+      committed_params = {...editing_params};
+      last_hint_text = "";
+
+      if (passed){
+        const st = stars_for_finish(attempts_used, hints_used);
+        stars_per_level[level_index] = Math.max(stars_per_level[level_index], st);
+        state = "win";
+      } else {
+        if (attempts_used >= ATTEMPT_LIMIT) state = "fail";
+      }
+      return;
+    }
+  }
+
+  document.addEventListener("keydown", onKeyDown, {passive:false});
+
+  function getMousePos(evt){
+    const rect = canvas.getBoundingClientRect();
+    const x = (evt.clientX - rect.left) * (WIDTH / rect.width);
+    const y = (evt.clientY - rect.top) * (HEIGHT / rect.height);
+    return [x,y];
+  }
+
+  function pointInRect(x,y,r){
+    return (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
+  }
+
+  canvas.addEventListener("mousedown", (e) => {
+    const [mx,my] = getMousePos(e);
+
+    if (state !== "tune") return;
+    if (e.button !== 0) return;
+
+    for (let i=0;i<param_specs.length;i++){
+      const p = param_specs[i];
+      const r = slider_rect(i);
+      // Расширенная область клика
+      const clickRect = {x: r.x - 15, y: r.y - 15, w: r.w + 30, h: r.h + 30};
+      if (pointInRect(mx,my,clickRect)){
+        dragging_name = p.name;
+        active_param_idx = i;
+        editing_params[p.name] = x_to_value(p, mx);
+        return;
+      }
+    }
+  });
+
+  canvas.addEventListener("mousemove", (e) => {
+    if (!dragging_name || state !== "tune") return;
+    const [mx,my] = getMousePos(e);
+    const i = param_names.indexOf(dragging_name);
+    const p = param_specs[i];
+    editing_params[p.name] = x_to_value(p, mx);
+  });
+
+  window.addEventListener("mouseup", (_e) => { dragging_name = null; });
+
+  canvas.addEventListener("wheel", (e) => {
+    if (state === "intro"){
+      e.preventDefault();
+      scroll_intro(e.deltaY > 0 ? +2 : -2);
+      return;
+    }
+    if (state === "theory"){
+      e.preventDefault();
+      scroll_theory(e.deltaY > 0 ? +2 : -2);
+    }
+  }, {passive:false});
+
+  // ---------------------------- DRAW MAIN ----------------------------
+  function draw(){
+    draw_background();
+
+    if (state === "theory"){
+      draw_theory_screen();
+      return;
+    }
+
+    draw_ui_header();
+    draw_axes();
+    draw_target_and_player();
+    draw_sliders();
+    draw_footer();
+
+    if (state === "win") draw_win_overlay();
+    else if (state === "fail") draw_fail_overlay();
+    else if (state === "final") draw_final_overlay();
+    else if (state === "intro") draw_intro_overlay();
+  }
+
+  let lastTs = null;
+  function frame(ts){
+    if (lastTs === null) lastTs = ts;
+    let dt = (ts - lastTs) / 1000;
+    lastTs = ts;
+    dt = clamp(dt, 0, 0.05);
+    
+    animTime += dt;
+
+    resizeCanvasToCSS();
+    draw();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  window.GameInstance = {
+    exportState(){ return { v: 1, level_index, stars_per_level: Array.isArray(stars_per_level) ? stars_per_level.slice() : [] }; },
+    importState(s){
+      if (!s || typeof s !== "object") return;
+      if (Number.isInteger(s.level_index)) level_index = Math.max(0, Math.min(LEVELS.length-1, s.level_index));
+      if (Array.isArray(s.stars_per_level)) {
+        stars_per_level = s.stars_per_level.map(x => Math.max(0, Math.min(3, Number(x)||0)));
+        while (stars_per_level.length < LEVELS.length) stars_per_level.push(0);
+        stars_per_level = stars_per_level.slice(0, LEVELS.length);
+      }
+      reset_level(true);
+      state = "tune";
+    },
+    getSessionSummary(){
+      const by = Array.isArray(stars_per_level) ? stars_per_level.slice() : [];
+      return {
+        stars_total: (typeof total_stars === "function") ? total_stars() : by.reduce((a,b)=>a+(+b||0),0),
+        stars_by_level: by,
+        level_reached: (Number.isInteger(level_index) ? level_index+1 : null),
+      };
+    }
+  };
+})();
+</script>
+<script src="/platform/client.js"></script>
+<script src="/platform/bridge.js"></script>
+</body>
+</html>

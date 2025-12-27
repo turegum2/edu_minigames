@@ -1,0 +1,1711 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Химический детектив</title>
+  <link rel="stylesheet" href="/assets/fonts/nunito/wght.css">
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+    }
+    body {
+      background: linear-gradient(135deg, #0a0a1a 0%, #1a1a3e 50%, #0f2027 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 14px;
+      box-sizing: border-box;
+      font-family: "Nunito Variable", sans-serif;
+    }
+    canvas {
+      width: min(1280px, calc(100vw - 28px));
+      aspect-ratio: 1280 / 800;
+      border-radius: 20px;
+      box-shadow: 
+        0 20px 60px rgba(0,0,0,0.6),
+        0 0 60px rgba(0, 200, 255, 0.1),
+        inset 0 0 100px rgba(255,255,255,0.03);
+      outline: 2px solid rgba(100, 200, 255, 0.15);
+      display: block;
+      touch-action: none;
+    }
+    .hint-bar {
+      width: min(1280px, calc(100vw - 28px));
+      margin-top: 6px;
+      padding: 8px 16px;
+      background: rgba(20, 30, 50, 0.9);
+      border-radius: 10px;
+      border: 1px solid rgba(100, 200, 255, 0.2);
+      font-size: 13px;
+      color: #B0C4DE;
+    }
+    .kbd {
+      display: inline-block;
+      padding: 2px 8px;
+      margin: 0 2px;
+      background: linear-gradient(to bottom, #3a4a5e, #2a3a4e);
+      border: 1px solid #4a5a6e;
+      border-radius: 5px;
+      font-family: 'Nunito', monospace;
+      font-size: 12px;
+      font-weight: 700;
+      color: #E0E8F0;
+      box-shadow: 0 2px 0 #1a2a3e;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game" width="1280" height="800" aria-label="Chemical Detective"></canvas>
+  <div class="hint-bar">
+    <span class="kbd">Левая кнопка мыши</span> применить реагент · <span class="kbd">Правая кнопка мыши</span> выбрать вещество ·
+    <span class="kbd">Space</span> подтвердить · <span class="kbd">H</span> подсказка · <span class="kbd">T</span> теория ·
+    <span class="kbd">R</span> перезапуск
+  </div>
+
+<script>
+"use strict";
+window.__GAME_ID__ = "chemical_detective";
+const W = 1280, H = 800;
+const LEFT_W = 220, RIGHT_W = 360, CENTER_W = 700, WORKTOP_Y = 560;
+const UI_FS = 20, PROMPT_FS = 26, FINAL_TITLE_FS = 32, FINAL_TEXT_FS = 20;
+const ATTEMPT_LIMIT = 5;
+
+// ===================== ЦВЕТОВАЯ ПАЛИТРА =====================
+const COLORS = {
+  // Фон
+  bgTop: '#0d1528',
+  bgMiddle: '#162035',
+  bgBottom: '#1a2a45',
+  
+  // Рабочий стол
+  worktopTop: '#2a3a55',
+  worktopMiddle: '#1e2a40',
+  worktopBottom: '#15202f',
+  worktopLine: '#3a4a65',
+  
+  // Панели
+  panelBg: 'rgba(15, 25, 45, 0.95)',
+  panelBorder: 'rgba(80, 150, 200, 0.3)',
+  panelGlow: 'rgba(80, 180, 255, 0.1)',
+  panelLight: 'rgba(240, 248, 255, 0.97)',
+  panelLightBorder: 'rgba(100, 150, 200, 0.3)',
+  
+  // Тексты
+  textPrimary: '#FFFFFF',
+  textSecondary: '#8BA4C4',
+  textDark: '#1a2a45',
+  textAccent: '#00D4FF',
+  textGold: '#FFD700',
+  textGreen: '#4ADE80',
+  textOrange: '#FBBF24',
+  textBlue: '#60A5FA',
+  textRed: '#F87171',
+  textPurple: '#C084FC',
+  
+  // Реагенты
+  reagentBg: 'rgba(30, 50, 80, 0.8)',
+  reagentBgHover: 'rgba(40, 70, 110, 0.9)',
+  reagentBorder: 'rgba(80, 150, 200, 0.4)',
+  reagentActive: 'rgba(0, 200, 255, 0.3)',
+  reagentActiveBorder: '#00D4FF',
+  
+  // Колбы
+  flaskGlass: 'rgba(200, 230, 255, 0.15)',
+  flaskGlassBorder: 'rgba(150, 200, 255, 0.4)',
+  flaskLiquid: ['#4A90D9', '#3A7BC8', '#2A6CB8'],
+  flaskHighlight: 'rgba(255, 255, 255, 0.3)',
+  
+  // Индикаторы (цвета лакмуса)
+  litmusAcid: ['#FF6B6B', '#EF4444', '#DC2626'],
+  litmusBase: ['#60A5FA', '#3B82F6', '#2563EB'],
+  litmusNeutral: ['#A78BFA', '#8B5CF6', '#7C3AED'],
+  
+  // Пламя
+  flameYellow: ['#FDE68A', '#FBBF24', '#F59E0B'],
+  flamePurple: ['#D8B4FE', '#A855F7', '#7E22CE'],
+  
+  // Звёзды
+  starGold: '#FFD700',
+  starGoldDark: '#FFA000',
+  starEmpty: '#3A4A60',
+  
+  // Оверлеи
+  successBg: 'rgba(16, 185, 129, 0.95)',
+  successBorder: '#34D399',
+  failBg: 'rgba(239, 68, 68, 0.95)',
+  failBorder: '#F87171',
+  infoBg: 'rgba(59, 130, 246, 0.95)',
+  infoBorder: '#60A5FA',
+  
+  // Осадок и пузырьки
+  precipWhite: ['#F0F4FF', '#E0E8F0', '#C0D0E0'],
+  bubbleWhite: 'rgba(255, 255, 255, 0.7)',
+};
+
+const DATA = {"PH_ACID": "acid", "PH_BASE": "base", "PH_NEUTRAL": "neutral", "SUBSTANCES": {"HCl": {"ph": "acid", "anion": "Cl"}, "H2SO4": {"ph": "acid", "anion": "SO4"}, "HNO3": {"ph": "acid", "anion": "NO3"}, "NaOH": {"ph": "base", "anion": "OH"}, "KOH": {"ph": "base", "anion": "OH"}, "NaCl": {"ph": "neutral", "anion": "Cl"}, "KCl": {"ph": "neutral", "anion": "Cl"}, "Na2SO4": {"ph": "neutral", "anion": "SO4"}, "K2SO4": {"ph": "neutral", "anion": "SO4"}, "Na2CO3": {"ph": "base", "anion": "CO3"}, "CaCO3": {"ph": "neutral", "anion": "CO3"}, "H2O": {"ph": "neutral", "anion": null}}, "SUBST_LABEL": {"HCl": "HCl", "H2SO4": "H₂SO₄", "HNO3": "HNO₃", "NaOH": "NaOH", "KOH": "KOH", "NaCl": "NaCl", "KCl": "KCl", "Na2SO4": "Na₂SO₄", "K2SO4": "K₂SO₄", "Na2CO3": "Na₂CO₃", "CaCO3": "CaCO₃", "H2O": "H₂O"}, "REAGENTS": [["litmus", "Лакмус"], ["BaCl2", "BaCl₂"], ["AgNO3", "AgNO₃"], ["HCl_reagent", "HCl"], ["flame", "Пламя"]], "COLOR_LITMUS": {"acid": COLORS.litmusAcid, "base": COLORS.litmusBase, "neutral": COLORS.litmusNeutral}, "FLAME_COLOR": {"Na": COLORS.flameYellow, "K": COLORS.flamePurple}, "LEVELS": [{"name": "Первое дело", "story": "Начнём с простого: отличаем кислоту и щёлочь.", "flasks": [{"id": 1, "substance": "HCl"}, {"id": 2, "substance": "NaOH"}], "available_tests": ["litmus"], "max_tests": 5, "hints": ["Лакмус краснеет в кислоте и синеет в щелочи."]}, {"name": "Три подозреваемых", "story": "Кислота, щёлочь и вода. Проверь два индикатора.", "flasks": [{"id": 1, "substance": "H2SO4"}, {"id": 2, "substance": "KOH"}, {"id": 3, "substance": "H2O"}], "available_tests": ["litmus"], "max_tests": 6, "hints": ["Лакмус отличит кислоту (красный), щёлочь (синий) и воду (фиолетовый)."]}, {"name": "Кислотное разнообразие", "story": "Разные кислоты — индикаторы одинаковы. Отличай по аниону.", "flasks": [{"id": 1, "substance": "HCl"}, {"id": 2, "substance": "H2SO4"}, {"id": 3, "substance": "HNO3"}], "available_tests": ["litmus", "BaCl2", "AgNO3"], "max_tests": 7, "hints": ["Лакмус у всех трёх одинаков. AgNO₃ -> осадок с HCl (AgCl), BaCl₂ -> осадок с H₂SO₄ (BaSO₄); с HNO₃ осадков нет."]}, {"name": "Соляная загадка", "story": "Сульфат отличаем тестом с BaCl₂. Кислоту ищем индикатором.", "flasks": [{"id": 1, "substance": "NaCl"}, {"id": 2, "substance": "Na2SO4"}, {"id": 3, "substance": "HCl"}], "available_tests": ["litmus", "BaCl2"], "max_tests": 7, "hints": ["BaCl₂ даёт белый осадок с сульфатами (BaSO₄); кислоту покажет лакмус."]}, {"name": "Хлориды и сульфаты", "story": "Нужны AgNO₃ и BaCl₂.", "flasks": [{"id": 1, "substance": "NaCl"}, {"id": 2, "substance": "KCl"}, {"id": 3, "substance": "Na2SO4"}, {"id": 4, "substance": "K2SO4"}], "available_tests": ["litmus", "BaCl2", "AgNO3", "flame"], "max_tests": 8, "hints": ["AgNO₃ -> осадок с хлоридами; BaCl₂ -> осадок с сульфатами; Проба пламени: Na⁺ — жёлтое, K⁺ — лиловое."]}, {"name": "Карбонатная тайна", "story": "Пузырьки CO₂ выдают карбонаты.", "flasks": [{"id": 1, "substance": "Na2CO3"}, {"id": 2, "substance": "CaCO3"}, {"id": 3, "substance": "KOH"}, {"id": 4, "substance": "H2O"}], "available_tests": ["litmus", "HCl_reagent"], "max_tests": 8, "hints": ["Добавь HCl — карбонаты шипят (CO₂). KOH — щёлочь без шипения, вода — нейтральна."]}, {"name": "Лабораторный беспорядок", "story": "Смешанные классы — действуй по плану: среда → анионы.", "flasks": [{"id": 1, "substance": "HCl"}, {"id": 2, "substance": "NaOH"}, {"id": 3, "substance": "NaCl"}, {"id": 4, "substance": "Na2SO4"}, {"id": 5, "substance": "Na2CO3"}], "available_tests": ["litmus", "BaCl2", "AgNO3", "HCl_reagent"], "max_tests": 11, "hints": ["Сначала лакмус (среда), затем точечные тесты по аниону."]}, {"name": "Двойные агенты", "story": "Соли тоже могут иметь кислую/щелочную реакцию раствора.", "flasks": [{"id": 1, "substance": "Na2CO3"}, {"id": 2, "substance": "NaCl"}, {"id": 3, "substance": "K2SO4"}, {"id": 4, "substance": "KOH"}], "available_tests": ["litmus", "BaCl2", "AgNO3", "HCl_reagent"], "max_tests": 9, "hints": ["Na₂CO₃ — щелочная реакция и шипит с HCl (CO₂); KOH — щёлочь, но без шипения."]}, {"name": "Скрытые улики", "story": "Правильная последовательность тестов важна.", "flasks": [{"id": 1, "substance": "H2SO4"}, {"id": 2, "substance": "NaCl"}, {"id": 3, "substance": "Na2SO4"}, {"id": 4, "substance": "H2O"}, {"id": 5, "substance": "NaOH"}], "available_tests": ["litmus", "BaCl2", "AgNO3"], "max_tests": 11, "hints": ["Сначала лакмус → понимать, где кислота/щелочь → затем BaCl₂/AgNO₃."]}, {"name": "Химическая головоломка", "story": "Больше колб — меньше тестов.", "flasks": [{"id": 1, "substance": "NaCl"}, {"id": 2, "substance": "KCl"}, {"id": 3, "substance": "Na2SO4"}, {"id": 4, "substance": "Na2CO3"}, {"id": 5, "substance": "HCl"}, {"id": 6, "substance": "H2O"}], "available_tests": ["litmus", "BaCl2", "AgNO3", "HCl_reagent", "flame"], "max_tests": 14, "hints": ["AgNO₃ по 5 колбам — определяем 3 вещества с Cl; Пробой пламени определяем (Na⁺/K⁺)"]}, {"name": "Экспертиза", "story": "Очень похожие вещества — внимательнее к деталям.", "flasks": [{"id": 1, "substance": "HNO3"}, {"id": 2, "substance": "HCl"}, {"id": 3, "substance": "NaCl"}, {"id": 4, "substance": "KCl"}, {"id": 5, "substance": "Na2SO4"}, {"id": 6, "substance": "K2SO4"}], "available_tests": ["litmus", "BaCl2", "AgNO3", "flame"], "max_tests": 14, "hints": ["AgNO₃ находит хлориды; BaCl₂ находит сульфаты; Проба пламени различает Na⁺/K⁺."]}, {"name": "Финальное расследование", "story": "Вся лаборатория — в порядке, если решишь задачу.", "flasks": [{"id": 1, "substance": "Na2CO3"}, {"id": 2, "substance": "NaCl"}, {"id": 3, "substance": "H2SO4"}, {"id": 4, "substance": "K2SO4"}, {"id": 5, "substance": "AgNO3"}, {"id": 6, "substance": "HCl"}], "available_tests": ["litmus", "BaCl2", "AgNO3", "HCl_reagent"], "max_tests": 15, "hints": ["AgNO₃: найди хлориды; BaCl₂: найди сульфаты; HCl: найди карбонат по CO₂."]}], "THEORY_PARAGRAPHS": ["СПРАВОЧНИК ДЕТЕКТИВА", "", "СТРАТЕГИЯ АНАЛИЗА:", "1) Определите тип среды лакмусом", "2) Проверьте анионы специфическими реагентами", "3) При необходимости различите катионы пробой пламени", "", "ИНДИКАТОР СРЕДЫ", "ЛАКМУС:", "• КРАСНЫЙ → Кислая среда", "  Вещества: HCl, H₂SO₄, HNO₃", "• СИНИЙ → Щелочная среда", "  Вещества: NaOH, KOH, Na₂CO₃ (слабощелочная)", "• ФИОЛЕТОВЫЙ → Нейтральная среда", "  Вещества: NaCl, KCl, Na₂SO₄, K₂SO₄, CaCO₃, H₂O", "", "ТЕСТЫ НА АНИОНЫ", "BaCl₂ → СУЛЬФАТЫ (SO₄²⁻):", "• Белый осадок BaSO₄", "• Обнаруживает: H₂SO₄, Na₂SO₄, K₂SO₄", "", "AgNO₃ → ХЛОРИДЫ (Cl⁻):", "• Белый творожистый осадок AgCl", "• Обнаруживает: HCl, NaCl, KCl", "", "HCl (реагент) → КАРБОНАТЫ (CO₃²⁻):", "• Выделение пузырьков CO₂ (шипение)", "• Обнаруживает: Na₂CO₃, CaCO₃", "", "ТЕСТ НА КАТИОНЫ", "ПРОБА ПЛАМЕНИ:", "• Жёлтое пламя → натрий (Na⁺)", "• Лиловое пламя → калий (K⁺)", "• Используйте для различения солей Na и K", "", "ПРИМЕРЫ", "", "Пример 1: Отличить HCl от NaCl", "→ Лакмус: HCl красный, NaCl фиолетовый", "", "Пример 2: Отличить Na₂SO₄ от K₂SO₄", "→ BaCl₂: оба дают осадок (оба сульфаты)", "→ Проба пламени: Na жёлтое, K лиловое", "", "Пример 3: Найти Na₂CO₃", "→ HCl реагент: шипение (есть карбонат)", "→ Лакмус: синий (щелочная среда)", "", "ЭКОНОМЬТЕ ТЕСТЫ:", "Планируйте последовательность!", "Один лакмус может исключить половину веществ."], "FINAL_COMMENT_TEXTS": {"t1": "Отлично! Вы уверенно проводите анализ и экономите тесты.", "t2": "Очень хорошо! Чуть больше планирования — и будет максимум.", "t3": "Неплохо — тренируйтесь выбирать правильную последовательность тестов.", "t4": "Старт хороший. Пользуйтесь теорией и подсказками — и всё получится!"}};
+
+// ===================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====================
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function randInt(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
+function randFloat(a, b) { return a + Math.random() * (b - a); }
+const deg2rad = d => d * Math.PI / 180;
+
+function rectContains(r, px, py) {
+  return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+}
+
+// Перенос текста
+function wrapText(text, maxChars) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines = [];
+  let cur = "";
+  for (const w of words) {
+    const next = cur ? (cur + " " + w) : w;
+    if (next.length <= maxChars) {
+      cur = next;
+    } else {
+      if (cur) lines.push(cur);
+      cur = w;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+// ===================== CANVAS =====================
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let animTime = 0;
+
+// ===================== ПРИМИТИВЫ РИСОВАНИЯ =====================
+function drawText(text, x, y, opts = {}) {
+  const {
+    color = COLORS.textPrimary,
+    fontsize = 20,
+    align = "left",
+    baseline = "top",
+    owidth = 0,
+    ocolor = "rgba(0,0,0,0.5)",
+    weight = 600
+  } = opts;
+
+  ctx.font = `${weight} ${fontsize}px "Nunito Variable", "Nunito", sans-serif`;
+  ctx.textAlign = align;
+  ctx.textBaseline = baseline;
+
+  if (owidth > 0) {
+    ctx.lineWidth = owidth * 2;
+    ctx.strokeStyle = ocolor;
+    ctx.strokeText(text, x, y);
+    ctx.lineWidth = 1;
+  }
+
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+}
+
+function roundedRect(x, y, w, h, r, fill, stroke, lineWidth = 2) {
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+  if (fill) {
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  if (stroke) {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+}
+
+function filledCircle(x, y, r, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawStar(cx, cy, r, filled) {
+  const pts = [];
+  for (let i = 0; i < 10; i++) {
+    const ang = deg2rad(-90 + i * 36);
+    const rr = (i % 2 === 0) ? r : r * 0.45;
+    pts.push({ x: cx + rr * Math.cos(ang), y: cy + rr * Math.sin(ang) });
+  }
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+
+  if (filled) {
+    const grad = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+    grad.addColorStop(0, COLORS.starGold);
+    grad.addColorStop(1, COLORS.starGoldDark);
+    ctx.fillStyle = grad;
+    ctx.shadowColor = 'rgba(255, 215, 0, 0.5)';
+    ctx.shadowBlur = 10;
+  } else {
+    ctx.fillStyle = COLORS.starEmpty;
+    ctx.shadowBlur = 0;
+  }
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.strokeStyle = filled ? '#B8860B' : '#2A3A50';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.lineWidth = 1;
+}
+
+// Ключ клавиатуры для intro/theory
+function drawKey(x, y, text, width = 40) {
+  const h = 26;
+  const w = width;
+
+  // Тень
+  roundedRect(x + 2, y + 2, w, h, 5, 'rgba(0,0,0,0.3)', null);
+
+  // Клавиша
+  const grad = ctx.createLinearGradient(x, y, x, y + h);
+  grad.addColorStop(0, '#3a4a5e');
+  grad.addColorStop(1, '#2a3a4e');
+  roundedRect(x, y, w, h, 5, grad, '#5a6a7e');
+
+  drawText(text, x + w / 2, y + h / 2, {
+    align: 'center', baseline: 'middle',
+    color: '#E0E8F0', fontsize: text.length > 3 ? 10 : 12, weight: 700
+  });
+}
+
+// ===================== ИКОНКИ ДЛЯ INTRO/THEORY =====================
+
+// Иконка колбы
+function drawIconFlask(x, y, size, liquidColor = COLORS.litmusNeutral) {
+  const w = size * 0.5;
+  const h = size * 0.9;
+  
+  // Горлышко
+  ctx.fillStyle = 'rgba(180, 220, 255, 0.3)';
+  ctx.fillRect(x - w * 0.2, y - h * 0.5, w * 0.4, h * 0.25);
+  ctx.strokeStyle = 'rgba(150, 200, 255, 0.6)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(x - w * 0.2, y - h * 0.5, w * 0.4, h * 0.25);
+  
+  // Тело колбы
+  ctx.beginPath();
+  ctx.moveTo(x - w * 0.2, y - h * 0.25);
+  ctx.lineTo(x - w * 0.5, y + h * 0.3);
+  ctx.quadraticCurveTo(x - w * 0.5, y + h * 0.5, x, y + h * 0.5);
+  ctx.quadraticCurveTo(x + w * 0.5, y + h * 0.5, x + w * 0.5, y + h * 0.3);
+  ctx.lineTo(x + w * 0.2, y - h * 0.25);
+  ctx.closePath();
+  
+  ctx.fillStyle = 'rgba(180, 220, 255, 0.2)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(150, 200, 255, 0.6)';
+  ctx.stroke();
+  
+  // Жидкость
+  const grad = ctx.createLinearGradient(x, y, x, y + h * 0.5);
+  grad.addColorStop(0, liquidColor[0]);
+  grad.addColorStop(0.5, liquidColor[1]);
+  grad.addColorStop(1, liquidColor[2]);
+  
+  ctx.beginPath();
+  ctx.moveTo(x - w * 0.35, y + h * 0.1);
+  ctx.lineTo(x - w * 0.45, y + h * 0.3);
+  ctx.quadraticCurveTo(x - w * 0.45, y + h * 0.45, x, y + h * 0.45);
+  ctx.quadraticCurveTo(x + w * 0.45, y + h * 0.45, x + w * 0.45, y + h * 0.3);
+  ctx.lineTo(x + w * 0.35, y + h * 0.1);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+  
+  // Блик
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.beginPath();
+  ctx.ellipse(x - w * 0.25, y, w * 0.1, h * 0.15, deg2rad(-15), 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// Иконка огня
+function drawIconFlame(x, y, size, colorSet = COLORS.flameYellow) {
+  ctx.save();
+  ctx.translate(x, y);
+  
+  const h = size;
+  const w = size * 0.6;
+  
+  // Внешнее пламя
+  const grad = ctx.createLinearGradient(0, -h * 0.5, 0, h * 0.3);
+  grad.addColorStop(0, colorSet[0]);
+  grad.addColorStop(0.5, colorSet[1]);
+  grad.addColorStop(1, colorSet[2]);
+  
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(0, -h * 0.5);
+  ctx.quadraticCurveTo(w * 0.5, -h * 0.2, w * 0.4, h * 0.2);
+  ctx.quadraticCurveTo(w * 0.2, h * 0.4, 0, h * 0.3);
+  ctx.quadraticCurveTo(-w * 0.2, h * 0.4, -w * 0.4, h * 0.2);
+  ctx.quadraticCurveTo(-w * 0.5, -h * 0.2, 0, -h * 0.5);
+  ctx.fill();
+  
+  // Внутреннее пламя (светлее)
+  ctx.fillStyle = colorSet[0];
+  ctx.globalAlpha = 0.7;
+  ctx.beginPath();
+  ctx.moveTo(0, -h * 0.3);
+  ctx.quadraticCurveTo(w * 0.25, -h * 0.1, w * 0.2, h * 0.1);
+  ctx.quadraticCurveTo(0, h * 0.2, -w * 0.2, h * 0.1);
+  ctx.quadraticCurveTo(-w * 0.25, -h * 0.1, 0, -h * 0.3);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  
+  ctx.restore();
+}
+
+// Иконка капли (индикатор)
+function drawIconDrop(x, y, size, color = COLORS.litmusAcid[1]) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x, y - size * 0.5);
+  ctx.quadraticCurveTo(x + size * 0.4, y + size * 0.1, x + size * 0.35, y + size * 0.3);
+  ctx.quadraticCurveTo(x, y + size * 0.5, x - size * 0.35, y + size * 0.3);
+  ctx.quadraticCurveTo(x - size * 0.4, y + size * 0.1, x, y - size * 0.5);
+  ctx.fill();
+  
+  // Блик
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.beginPath();
+  ctx.ellipse(x - size * 0.1, y, size * 0.08, size * 0.15, deg2rad(-20), 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// Иконка осадка (частицы)
+function drawIconPrecip(x, y, size) {
+  for (let i = 0; i < 6; i++) {
+    const px = x + (i % 3 - 1) * size * 0.3;
+    const py = y + Math.floor(i / 3) * size * 0.35 - size * 0.2;
+    const r = size * 0.12;
+    
+    const grad = ctx.createRadialGradient(px - r * 0.3, py - r * 0.3, 0, px, py, r);
+    grad.addColorStop(0, '#FFFFFF');
+    grad.addColorStop(0.5, '#E0E8F0');
+    grad.addColorStop(1, '#B0C0D0');
+    
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// Иконка пузырьков
+function drawIconBubbles(x, y, size) {
+  const bubbles = [
+    { dx: 0, dy: -0.3, r: 0.15 },
+    { dx: -0.2, dy: 0, r: 0.1 },
+    { dx: 0.15, dy: 0.1, r: 0.12 },
+    { dx: -0.1, dy: 0.25, r: 0.08 },
+    { dx: 0.2, dy: -0.15, r: 0.1 },
+  ];
+  
+  for (const b of bubbles) {
+    const bx = x + b.dx * size;
+    const by = y + b.dy * size;
+    const br = b.r * size;
+    
+    ctx.strokeStyle = 'rgba(200, 230, 255, 0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(bx, by, br, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // Блик
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.beginPath();
+    ctx.arc(bx - br * 0.3, by - br * 0.3, br * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.lineWidth = 1;
+}
+
+// ===================== ХИМИЧЕСКИЙ ТЕКСТ =====================
+const SUBS = { "₀":"0","₁":"1","₂":"2","₃":"3","₄":"4","₅":"5","₆":"6","₇":"7","₈":"8","₉":"9" };
+const SUPS = { "⁰":"0","¹":"1","²":"2","³":"3","⁴":"4","⁵":"5","⁶":"6","⁷":"7","⁸":"8","⁹":"9","⁺":"+","⁻":"-" };
+const ARROWS = ["⇢","→","⇒","⟶","⟹","➝","➔","➜","➞","➙","➛"];
+
+function normalizeChemText(s) {
+  let out = s;
+  for (const a of ARROWS) out = out.split(a).join("->");
+  out = out.replaceAll("−","-").replaceAll("—","-").replaceAll("–","-");
+  for (const sp of ["\u2009","\u202F","\u200A","\u00A0"]) out = out.replaceAll(sp, " ");
+  return out;
+}
+
+function drawChem(text, x, y, opts = {}) {
+  const {
+    color = COLORS.textPrimary,
+    fontSize = 20,
+    weight = 600
+  } = opts;
+
+  const s = normalizeChemText(text);
+  const baseSize = fontSize;
+  const smallSize = Math.max(12, Math.floor(fontSize * 0.75));
+  const dySub = Math.floor(fontSize * 0.30);
+  const dySup = -Math.floor(fontSize * 0.35);
+
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  let cx = x;
+
+  for (const ch of s) {
+    if (SUBS[ch] !== undefined) {
+      ctx.font = `${weight} ${smallSize}px 'Nunito', sans-serif`;
+      ctx.fillStyle = color;
+      const t = SUBS[ch];
+      ctx.fillText(t, cx, y + dySub);
+      cx += ctx.measureText(t).width;
+    } else if (SUPS[ch] !== undefined) {
+      ctx.font = `${weight} ${smallSize}px 'Nunito', sans-serif`;
+      ctx.fillStyle = color;
+      const t = SUPS[ch];
+      ctx.fillText(t, cx, y + dySup);
+      cx += ctx.measureText(t).width;
+    } else {
+      ctx.font = `${weight} ${baseSize}px 'Nunito', sans-serif`;
+      ctx.fillStyle = color;
+      ctx.fillText(ch, cx, y);
+      cx += ctx.measureText(ch).width;
+    }
+  }
+  return cx;
+}
+
+function measureChemWidth(text, fontSize = 18) {
+  const s = normalizeChemText(text);
+  const baseSize = fontSize;
+  const smallSize = Math.max(12, Math.floor(fontSize * 0.75));
+  let w = 0;
+  for (const ch of s) {
+    if (SUBS[ch] !== undefined) {
+      ctx.font = `600 ${smallSize}px 'Nunito', sans-serif`;
+      w += ctx.measureText(SUBS[ch]).width;
+    } else if (SUPS[ch] !== undefined) {
+      ctx.font = `600 ${smallSize}px 'Nunito', sans-serif`;
+      w += ctx.measureText(SUPS[ch]).width;
+    } else {
+      ctx.font = `600 ${baseSize}px 'Nunito', sans-serif`;
+      w += ctx.measureText(ch).width;
+    }
+  }
+  return w;
+}
+
+// ===================== СОСТОЯНИЕ ИГРЫ =====================
+let state = "intro";
+let prevStateForTheory = null;
+let levelIndex = 0;
+
+let testsUsed = 0;
+let guessAttempts = 0;
+let showHint = false;
+let hintUsedThisLevel = false;
+
+let THEORY_SCROLL = 0;
+let JOURNAL_SCROLL = 0;
+let INTRO_SCROLL = 0;
+
+let selectedReagent = null;
+let journal = [];
+let starsPerLevel = new Array(DATA.LEVELS.length).fill(0);
+
+class Flask {
+  constructor(id, substance, rect) {
+    this.id = id;
+    this.true = substance;
+    this.rect = rect;
+    this.overlayColor = null;
+    this.bubbles = [];
+    this.precip = [];
+    this.flame = null;
+    this.has_precip = false;
+    this.guess_list = [];
+    this.guess_idx = 0;
+    this.last_log = null;
+  }
+  cycle_guess() {
+    if (!this.guess_list.length) return;
+    this.guess_idx = (this.guess_idx + 1) % this.guess_list.length;
+  }
+  get guess() {
+    if (!this.guess_list.length) return null;
+    return this.guess_list[this.guess_idx];
+  }
+}
+
+let flasks = [];
+
+function currentLevel() { return DATA.LEVELS[levelIndex]; }
+
+function log(msg) {
+  journal.push(msg);
+  const linesVisible = 18;
+  JOURNAL_SCROLL = Math.max(0, journal.length - linesVisible);
+}
+
+function resetLevel() {
+  const lvl = currentLevel();
+  journal = [];
+  testsUsed = 0;
+  guessAttempts = 0;
+  showHint = false;
+  hintUsedThisLevel = false;
+  JOURNAL_SCROLL = 0;
+
+  const n = lvl.flasks.length;
+  const centerX = LEFT_W + Math.floor(CENTER_W / 2);
+  const cy = WORKTOP_Y - 160;
+
+  const usable = CENTER_W - 100;
+  let minSpacing = 110;
+  if (n >= 5) minSpacing = 95;
+  if (n >= 6) minSpacing = 90;
+
+  const spacing = (n === 1) ? 140 : Math.max(minSpacing, Math.min(160, Math.floor(usable / Math.max(1, n-1))));
+  const firstX = centerX - Math.floor((n - 1) * spacing / 2);
+
+  const options = Array.from(new Set(lvl.flasks.map(f => f.substance))).sort();
+  flasks = [];
+  for (let i = 0; i < n; i++) {
+    const f = lvl.flasks[i];
+    const r = {
+      x: firstX + i * spacing - 36,
+      y: cy - 70,
+      w: 72,
+      h: 140
+    };
+    const obj = new Flask(f.id, f.substance, r);
+    obj.guess_list = options.slice();
+    obj.guess_idx = Math.floor(Math.random() * options.length);
+    flasks.push(obj);
+  }
+
+  selectedReagent = null;
+  log("Журнал наблюдений:");
+}
+
+resetLevel();
+
+// ===================== РЕАКЦИИ =====================
+function phToText(ph) {
+  if (ph === DATA.PH_ACID) return "кислая";
+  if (ph === DATA.PH_BASE) return "щелочная";
+  return "нейтральная";
+}
+
+function spawnBubbles(flask) {
+  flask.bubbles = [];
+  const r = flask.rect;
+  for (let i = 0; i < 18; i++) {
+    const x = (r.x + r.w / 2) + randInt(-20, 20);
+    const y = (r.y + r.h) - 12 - randInt(0, 10);
+    const v = randFloat(0.8, 1.6);
+    flask.bubbles.push([x, y, v]);
+  }
+}
+
+function spawnPrecip(flask) {
+  flask.has_precip = true;
+  const r = flask.rect;
+  for (let i = 0; i < 18; i++) {
+    const x = (r.x + r.w / 2) + randInt(-26, 26);
+    const y = (r.y + r.h / 2) + randInt(-20, 20);
+    const v = randFloat(1.0, 2.0);
+    flask.precip.push([x, y, v]);
+  }
+}
+
+function applyReagent(flask, reagentKey) {
+  const lvl = currentLevel();
+  if (!lvl.available_tests.includes(reagentKey)) {
+    return "Реагент недоступен на этом уровне.";
+  }
+  testsUsed += 1;
+
+  const sub = flask.true;
+  const props = DATA.SUBSTANCES[sub] ?? { ph: DATA.PH_NEUTRAL, anion: null };
+  const ph = props.ph ?? DATA.PH_NEUTRAL;
+  const anion = props.anion ?? null;
+
+  if (reagentKey === "litmus") {
+    flask.overlayColor = DATA.COLOR_LITMUS[ph];
+    return `Колба №${flask.id} + Лакмус → ${phToText(ph)}`;
+  }
+
+  if (reagentKey === "BaCl2") {
+    if (anion === "SO4" || sub === "H2SO4") {
+      spawnPrecip(flask);
+      return `Колба №${flask.id} + BaCl₂ → белый осадок (BaSO₄)`;
+    }
+    return `Колба №${flask.id} + BaCl₂ → без изменений`;
+  }
+
+  if (reagentKey === "AgNO3") {
+    if (anion === "Cl" || sub === "HCl") {
+      spawnPrecip(flask);
+      return `Колба №${flask.id} + AgNO₃ → белый осадок (AgCl)`;
+    }
+    return `Колба №${flask.id} + AgNO₃ → без изменений`;
+  }
+
+  if (reagentKey === "HCl_reagent") {
+    if (anion === "CO3" || sub === "Na2CO3" || sub === "CaCO3") {
+      spawnBubbles(flask);
+      return `Колба №${flask.id} + HCl → выделение CO₂ (шипение)`;
+    }
+    return `Колба №${flask.id} + HCl → без изменений`;
+  }
+
+  if (reagentKey === "flame") {
+    if (sub.startsWith("Na")) {
+      flask.flame = "Na";
+      return `Колба №${flask.id} + Проба пламени → Na⁺`;
+    } else if (sub.startsWith("K")) {
+      flask.flame = "K";
+      return `Колба №${flask.id} + Проба пламени → K⁺`;
+    } else {
+      flask.flame = null;
+      return `Колба №${flask.id} + Проба пламени → —`;
+    }
+  }
+
+  return "Нет реакции.";
+}
+
+function calculateStars(maxTests, testsUsed, guessAttempts) {
+  if (guessAttempts === 1 && testsUsed <= (maxTests - 4)) return 3;
+  if (guessAttempts <= 2 || testsUsed <= (maxTests - 2)) return 2;
+  return 1;
+}
+
+function checkAnswers() {
+  return flasks.every(f => f.guess === f.true);
+}
+
+function finalComment(total) {
+  const m = DATA.LEVELS.length * 3;
+  if (total >= 0.85 * m) return DATA.FINAL_COMMENT_TEXTS.t1;
+  if (total >= 0.65 * m) return DATA.FINAL_COMMENT_TEXTS.t2;
+  if (total >= 0.45 * m) return DATA.FINAL_COMMENT_TEXTS.t3;
+  return DATA.FINAL_COMMENT_TEXTS.t4;
+}
+
+function goNextLevel() {
+  if (levelIndex < DATA.LEVELS.length - 1) {
+    levelIndex += 1;
+    resetLevel();
+    state = "play";
+  } else {
+    state = "final";
+  }
+}
+
+function totalStars() {
+  return starsPerLevel.reduce((a, b) => a + b, 0);
+}
+
+// ===================== РИСОВАНИЕ ФОНА =====================
+function drawBackground() {
+  // Градиент фона
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+  bgGrad.addColorStop(0, COLORS.bgTop);
+  bgGrad.addColorStop(0.5, COLORS.bgMiddle);
+  bgGrad.addColorStop(1, COLORS.bgBottom);
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+  
+  // Декоративные круги (молекулы на заднем плане)
+  ctx.globalAlpha = 0.03;
+  for (let i = 0; i < 8; i++) {
+    const x = 100 + i * 160 + Math.sin(animTime * 0.5 + i) * 20;
+    const y = 150 + Math.cos(animTime * 0.3 + i * 0.5) * 30;
+    const r = 40 + Math.sin(animTime + i) * 10;
+    filledCircle(x, y, r, '#60A5FA');
+  }
+  ctx.globalAlpha = 1;
+  
+  // Левая панель
+  const leftPanelGrad = ctx.createLinearGradient(0, 0, LEFT_W, 0);
+  leftPanelGrad.addColorStop(0, 'rgba(15, 25, 45, 0.98)');
+  leftPanelGrad.addColorStop(1, 'rgba(20, 35, 60, 0.95)');
+  ctx.fillStyle = leftPanelGrad;
+  ctx.fillRect(0, 0, LEFT_W, H);
+  
+  // Граница левой панели с свечением
+  ctx.strokeStyle = COLORS.panelBorder;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(LEFT_W, 0);
+  ctx.lineTo(LEFT_W, H);
+  ctx.stroke();
+  
+  // Правая панель
+  const rightPanelGrad = ctx.createLinearGradient(W - RIGHT_W, 0, W, 0);
+  rightPanelGrad.addColorStop(0, 'rgba(20, 35, 60, 0.95)');
+  rightPanelGrad.addColorStop(1, 'rgba(15, 25, 45, 0.98)');
+  ctx.fillStyle = rightPanelGrad;
+  ctx.fillRect(W - RIGHT_W, 0, RIGHT_W, H);
+  
+  ctx.beginPath();
+  ctx.moveTo(W - RIGHT_W, 0);
+  ctx.lineTo(W - RIGHT_W, H);
+  ctx.stroke();
+  
+  // Рабочий стол
+  const worktopGrad = ctx.createLinearGradient(LEFT_W, WORKTOP_Y, LEFT_W, WORKTOP_Y + 40);
+  worktopGrad.addColorStop(0, COLORS.worktopTop);
+  worktopGrad.addColorStop(0.5, COLORS.worktopMiddle);
+  worktopGrad.addColorStop(1, COLORS.worktopBottom);
+  ctx.fillStyle = worktopGrad;
+  ctx.fillRect(LEFT_W, WORKTOP_Y, CENTER_W, 40);
+  
+  // Линия на столе
+  ctx.strokeStyle = COLORS.worktopLine;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(LEFT_W, WORKTOP_Y);
+  ctx.lineTo(LEFT_W + CENTER_W, WORKTOP_Y);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+}
+
+// ===================== ВЕРХНЯЯ ПАНЕЛЬ =====================
+function drawTopPanel() {
+  const lvl = currentLevel();
+  
+  // Название уровня
+  drawText(`Уровень ${levelIndex + 1}/${DATA.LEVELS.length}`, LEFT_W + 16, 14, {
+    color: COLORS.textAccent, fontsize: 16, weight: 700
+  });
+  drawText(lvl.name, LEFT_W + 16, 36, {
+    color: COLORS.textPrimary, fontsize: 22, weight: 700
+  });
+  
+  // Статистика
+  const statsX = LEFT_W + 16;
+  drawText(`Тесты: ${testsUsed}/${lvl.max_tests}`, statsX, 68, {
+    color: testsUsed > lvl.max_tests ? COLORS.textRed : COLORS.textSecondary, fontsize: 16
+  });
+  drawText(`Проверок: ${guessAttempts}/${ATTEMPT_LIMIT}`, statsX + 130, 68, {
+    color: guessAttempts >= ATTEMPT_LIMIT - 1 ? COLORS.textOrange : COLORS.textSecondary, fontsize: 16
+  });
+  
+  // Звёзды справа
+  const total = totalStars();
+  drawText(`${total}/${DATA.LEVELS.length * 3}`, LEFT_W + CENTER_W - 16, 20, {
+    color: COLORS.textGold, fontsize: 18, weight: 700, align: 'right'
+  });
+  for (let i = 0; i < 3; i++) {
+    drawStar(LEFT_W + CENTER_W - 160 + i * 24, 22, 10, i < starsPerLevel[levelIndex]);
+  }
+  
+  // Подсказка по клавишам
+  drawText("H подсказка · T теория · R сброс", LEFT_W + CENTER_W - 16, 68, {
+    color: COLORS.textSecondary, fontsize: 13, align: 'right'
+  });
+  
+  // Подсказка если включена
+  if (showHint && lvl.hints && lvl.hints.length) {
+    roundedRect(LEFT_W + 10, 92, CENTER_W - 20, 36, 8, 'rgba(59, 130, 246, 0.9)', null);
+    const hint = "Подсказка: " + lvl.hints[0];
+    drawChem(hint, LEFT_W + 20, 100, { color: '#FFFFFF', fontSize: 15 });
+  }
+}
+
+// ===================== ПАНЕЛЬ РЕАГЕНТОВ =====================
+function drawReagentShelf() {
+  drawText("Реагенты", 16, 14, {
+    color: COLORS.textAccent, fontsize: 18, weight: 700
+  });
+  
+  let y = 48;
+  for (const [key, title] of DATA.REAGENTS) {
+    const enabled = currentLevel().available_tests.includes(key);
+    const selected = selectedReagent === key;
+    const box = { x: 12, y, w: LEFT_W - 24, h: 46 };
+    
+    // Фон кнопки
+    let bgColor = enabled ? COLORS.reagentBg : 'rgba(30, 40, 55, 0.5)';
+    let borderColor = enabled ? COLORS.reagentBorder : 'rgba(50, 60, 75, 0.3)';
+    
+    if (selected) {
+      bgColor = COLORS.reagentActive;
+      borderColor = COLORS.reagentActiveBorder;
+    }
+    
+    roundedRect(box.x, box.y, box.w, box.h, 10, bgColor, borderColor);
+    
+    // Свечение для выбранного
+    if (selected) {
+      ctx.shadowColor = COLORS.textAccent;
+      ctx.shadowBlur = 15;
+      roundedRect(box.x, box.y, box.w, box.h, 10, null, COLORS.reagentActiveBorder, 2);
+      ctx.shadowBlur = 0;
+    }
+    
+    // Мини-иконка реагента
+    const iconX = box.x + 28;
+    const iconY = box.y + box.h / 2;
+    
+    if (key === "litmus") {
+      drawIconDrop(iconX, iconY, 20, COLORS.litmusNeutral[1]);
+    } else if (key === "flame") {
+      drawIconFlame(iconX, iconY, 22, COLORS.flameYellow);
+    } else {
+      drawIconFlask(iconX, iconY, 28, COLORS.flaskLiquid);
+    }
+    
+    // Название
+    const textColor = enabled ? COLORS.textPrimary : COLORS.textSecondary;
+    drawChem(title, box.x + 52, box.y + 12, { color: textColor, fontSize: 18 });
+    
+    // Галочка для выбранного
+    if (selected) {
+      const cx = box.x + box.w - 20;
+      const cy = box.y + box.h / 2;
+      ctx.strokeStyle = COLORS.textAccent;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cx - 8, cy);
+      ctx.lineTo(cx - 2, cy + 6);
+      ctx.lineTo(cx + 8, cy - 6);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+    
+    y += 54;
+  }
+}
+
+// ===================== СПИСОК ВЕЩЕСТВ =====================
+function drawSubstancesBlock() {
+  const lvl = currentLevel();
+  const required = Array.from(new Set(lvl.flasks.map(f => f.substance))).sort();
+  const present = new Set(flasks.map(f => f.guess).filter(Boolean));
+
+  const yStart = 48 + DATA.REAGENTS.length * 54 + 20;
+  const box = { x: 12, y: yStart, w: LEFT_W - 24, h: H - yStart - 60 };
+  
+  roundedRect(box.x, box.y, box.w, box.h, 12, 'rgba(20, 35, 55, 0.8)', COLORS.panelBorder);
+
+  drawText("Вещества", box.x + 12, box.y + 10, {
+    color: COLORS.textAccent, fontsize: 16, weight: 700
+  });
+
+  let y = box.y + 44;
+  const lineH = 26;
+  for (const s of required) {
+    const label = (DATA.SUBST_LABEL[s] ?? s);
+    const isUsed = present.has(s);
+    const col = isUsed ? COLORS.textGreen : 'rgba(200, 100, 100, 0.8)';
+    
+    // Индикатор
+    const indicatorX = box.x + 18;
+    filledCircle(indicatorX, y + 8, 4, isUsed ? COLORS.textGreen : COLORS.textRed);
+    
+    drawChem(label, box.x + 32, y, { color: col, fontSize: 17 });
+    y += lineH;
+  }
+  
+  // Подпись безопасности
+  drawText("Безопасность:", box.x + 12, H - 52, {
+    color: COLORS.textSecondary, fontsize: 12
+  });
+  drawText("перчатки и очки!", box.x + 12, H - 36, {
+    color: COLORS.textOrange, fontsize: 13, weight: 700
+  });
+}
+
+// ===================== ЖУРНАЛ =====================
+function drawRightJournal() {
+  drawText("Журнал", W - RIGHT_W + 16, 14, {
+    color: COLORS.textAccent, fontsize: 18, weight: 700
+  });
+  
+  const box = { x: W - RIGHT_W + 12, y: 48, w: RIGHT_W - 24, h: H - 140 };
+  roundedRect(box.x, box.y, box.w, box.h, 12, 'rgba(20, 35, 55, 0.8)', COLORS.panelBorder);
+
+  const lineH = 24;
+  const visible = Math.floor((box.h - 20) / lineH);
+  const maxScroll = Math.max(0, journal.length - visible);
+  JOURNAL_SCROLL = clamp(JOURNAL_SCROLL, 0, maxScroll);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(box.x, box.y, box.w, box.h);
+  ctx.clip();
+
+  let y = box.y + 12;
+  for (let i = JOURNAL_SCROLL; i < Math.min(journal.length, JOURNAL_SCROLL + visible); i++) {
+    const isHeader = journal[i].includes("Журнал");
+    drawChem(journal[i], box.x + 12, y, {
+      color: isHeader ? COLORS.textAccent : COLORS.textSecondary,
+      fontSize: 15,
+      weight: isHeader ? 700 : 400
+    });
+    y += lineH;
+  }
+
+  ctx.restore();
+
+  // Скроллбар
+  if (journal.length > visible) {
+    const scrollPercent = JOURNAL_SCROLL / Math.max(1, maxScroll);
+    const trackH = box.h - 20;
+    const indicatorH = Math.max(20, Math.floor((visible / journal.length) * trackH));
+    const indicatorY = box.y + 10 + Math.floor(scrollPercent * (trackH - indicatorH));
+    roundedRect(box.x + box.w - 10, indicatorY, 6, indicatorH, 3, 'rgba(100, 150, 200, 0.5)', null);
+  }
+}
+
+// ===================== КОЛБЫ =====================
+function drawFlasks() {
+  for (const f of flasks) {
+    const r = f.rect;
+    const cx = r.x + r.w / 2;
+    const cy = r.y + r.h / 2;
+    
+    // Тень колбы
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 20;
+    ctx.shadowOffsetY = 10;
+    
+    // Стекло колбы (форма)
+    ctx.beginPath();
+    // Горлышко
+    ctx.moveTo(cx - 12, r.y);
+    ctx.lineTo(cx - 12, r.y + 30);
+    // Расширение к телу
+    ctx.quadraticCurveTo(cx - 35, r.y + 50, cx - 35, r.y + r.h - 20);
+    // Дно
+    ctx.quadraticCurveTo(cx - 35, r.y + r.h, cx, r.y + r.h);
+    ctx.quadraticCurveTo(cx + 35, r.y + r.h, cx + 35, r.y + r.h - 20);
+    // Обратно к горлышку
+    ctx.quadraticCurveTo(cx + 35, r.y + 50, cx + 12, r.y + 30);
+    ctx.lineTo(cx + 12, r.y);
+    ctx.closePath();
+    
+    // Градиент стекла
+    const glassGrad = ctx.createLinearGradient(r.x, r.y, r.x + r.w, r.y + r.h);
+    glassGrad.addColorStop(0, 'rgba(180, 220, 255, 0.15)');
+    glassGrad.addColorStop(0.5, 'rgba(200, 230, 255, 0.1)');
+    glassGrad.addColorStop(1, 'rgba(180, 220, 255, 0.15)');
+    ctx.fillStyle = glassGrad;
+    ctx.fill();
+    
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    
+    // Обводка стекла
+    ctx.strokeStyle = COLORS.flaskGlassBorder;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    // Жидкость внутри
+    const liquidY = r.y + r.h - 50;
+    ctx.beginPath();
+    ctx.moveTo(cx - 30, liquidY);
+    ctx.quadraticCurveTo(cx - 33, r.y + r.h - 20, cx - 33, r.y + r.h - 18);
+    ctx.quadraticCurveTo(cx - 33, r.y + r.h - 2, cx, r.y + r.h - 2);
+    ctx.quadraticCurveTo(cx + 33, r.y + r.h - 2, cx + 33, r.y + r.h - 18);
+    ctx.quadraticCurveTo(cx + 33, r.y + r.h - 20, cx + 30, liquidY);
+    ctx.closePath();
+    
+    // Цвет жидкости (индикатор или нейтральный)
+    let liquidColors = COLORS.flaskLiquid;
+    if (f.overlayColor) {
+      liquidColors = f.overlayColor;
+    }
+    
+    const liqGrad = ctx.createLinearGradient(cx, liquidY, cx, r.y + r.h);
+    liqGrad.addColorStop(0, liquidColors[0]);
+    liqGrad.addColorStop(0.5, liquidColors[1]);
+    liqGrad.addColorStop(1, liquidColors[2]);
+    ctx.fillStyle = liqGrad;
+    ctx.fill();
+    
+    // Блик на колбе
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.beginPath();
+    ctx.ellipse(cx - 18, r.y + 50, 6, 25, deg2rad(-10), 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Пузырьки
+    for (const b of f.bubbles) {
+      ctx.fillStyle = COLORS.bubbleWhite;
+      ctx.beginPath();
+      ctx.arc(b[0], b[1], 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(200, 230, 255, 0.6)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    
+    // Осадок
+    if (f.has_precip) {
+      for (const p of f.precip) {
+        const grad = ctx.createRadialGradient(p[0] - 1, p[1] - 1, 0, p[0], p[1], 3);
+        grad.addColorStop(0, COLORS.precipWhite[0]);
+        grad.addColorStop(0.5, COLORS.precipWhite[1]);
+        grad.addColorStop(1, COLORS.precipWhite[2]);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(p[0], p[1], 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    
+    // Пламя сверху
+    if (f.flame && DATA.FLAME_COLOR[f.flame]) {
+      drawIconFlame(cx, r.y - 20, 35, DATA.FLAME_COLOR[f.flame]);
+    }
+    
+    // Номер колбы
+    drawText(`№${f.id}`, cx, r.y - 8, {
+      color: COLORS.textSecondary, fontsize: 14, align: 'center', baseline: 'bottom', weight: 700
+    });
+    
+    // Ответ под колбой
+    const g = f.guess;
+    if (g) {
+      const label = DATA.SUBST_LABEL[g] ?? g;
+      const textW = measureChemWidth(label, 16);
+      const boxW = Math.max(90, textW + 20);
+      const boxX = cx - boxW / 2;
+      roundedRect(boxX, r.y + r.h + 8, boxW, 28, 6, 'rgba(30, 50, 80, 0.95)', COLORS.panelBorder);
+      drawChem(label, cx - textW / 2, r.y + r.h + 14, {
+        color: COLORS.textPrimary, fontSize: 16
+      });
+    }
+  }
+}
+
+// ===================== КНОПКА ПОДТВЕРЖДЕНИЯ =====================
+function drawBottomConfirm() {
+  const box = { x: LEFT_W + 50, y: H - 70, w: CENTER_W - 100, h: 50 };
+  
+  // Градиент кнопки
+  const btnGrad = ctx.createLinearGradient(box.x, box.y, box.x, box.y + box.h);
+  btnGrad.addColorStop(0, 'rgba(0, 180, 220, 0.9)');
+  btnGrad.addColorStop(1, 'rgba(0, 150, 200, 0.9)');
+  
+  ctx.shadowColor = 'rgba(0, 200, 255, 0.4)';
+  ctx.shadowBlur = 15;
+  roundedRect(box.x, box.y, box.w, box.h, 12, btnGrad, 'rgba(100, 220, 255, 0.5)', 2);
+  ctx.shadowBlur = 0;
+  
+  drawText("ПОДТВЕРДИТЬ", box.x + box.w / 2, box.y + box.h / 2 - 2, {
+    color: '#FFFFFF', fontsize: 20, align: 'center', baseline: 'middle', weight: 800
+  });
+  drawText("SPACE", box.x + box.w / 2, box.y + box.h / 2 + 16, {
+    color: 'rgba(255, 255, 255, 0.6)', fontsize: 11, align: 'center', baseline: 'middle'
+  });
+}
+
+// ===================== INTRO OVERLAY =====================
+function drawIntroOverlay() {
+  const box = { x: 100, y: 50, w: W - 200, h: H - 100 };
+  
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+  ctx.shadowBlur = 40;
+  roundedRect(box.x, box.y, box.w, box.h, 20, COLORS.panelLight, COLORS.panelLightBorder);
+  ctx.shadowBlur = 0;
+  
+  // Заголовок
+  drawText("Химический детектив", box.x + box.w / 2, box.y + 35, {
+    align: 'center', baseline: 'middle',
+    color: COLORS.textDark, fontsize: 30, weight: 800
+  });
+  
+  // Анимированная колба
+  const flaskY = box.y + 90;
+  const pulse = 1 + Math.sin(animTime * 3) * 0.05;
+  drawIconFlask(box.x + box.w / 2, flaskY, 60 * pulse, COLORS.litmusBase);
+  
+  // Секции контента
+  const sections = [
+    {
+      title: "Твоя задача",
+      icon: "flask",
+      text: "Определи вещества в колбах, используя химические тесты. Каждый тест даёт подсказку — цвет индикатора, осадок или пузырьки газа. Важно: в каждой колбе гарантированно разное вещество!"
+    },
+    {
+      title: "Как проверять ответы",
+      icon: "drop",
+      text: "Выбери реагент слева, затем кликни по колбе. Результат появится в журнале. Перед подтверждением убедись, что все вещества в списке слева подсвечены зелёным — это значит, что каждое вещество назначено ровно одной колбе."
+    },
+    {
+      title: "Индикаторы среды",
+      icon: "colors",
+      text: "Лакмус меняет цвет: красный = кислота, синий = щёлочь, фиолетовый = нейтральная среда. Это первый шаг анализа."
+    },
+    {
+      title: "Специфические тесты",
+      icon: "precip",
+      text: "BaCl₂ находит сульфаты (белый осадок). AgNO₃ находит хлориды. HCl выявляет карбонаты по пузырькам CO₂."
+    },
+    {
+      title: "Управление",
+      icon: "keys",
+      text: "Левая кнопка мыши — применить реагент к колбе. Правая кнопка мыши — выбрать вещество. ПРОБЕЛ — подтвердить ответы. H — подсказка. T — теория. R — начать уровень заново."
+    }
+  ];
+  
+  const contentY = box.y + 140;
+  const contentH = box.h - 180;
+  
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(box.x + 20, contentY, box.w - 40, contentH);
+  ctx.clip();
+  
+  let y = contentY + 10 - INTRO_SCROLL * 30;
+  
+  for (const section of sections) {
+    if (y > contentY - 100 && y < contentY + contentH + 50) {
+      // Иконка
+      const iconX = box.x + 55;
+      const iconY = y + 30;
+      
+      if (section.icon === "flask") {
+        drawIconFlask(iconX, iconY, 40, COLORS.flaskLiquid);
+      } else if (section.icon === "drop") {
+        drawIconDrop(iconX, iconY, 28, COLORS.litmusAcid[1]);
+      } else if (section.icon === "colors") {
+        drawIconDrop(iconX - 15, iconY, 20, COLORS.litmusAcid[1]);
+        drawIconDrop(iconX, iconY - 5, 20, COLORS.litmusBase[1]);
+        drawIconDrop(iconX + 15, iconY, 20, COLORS.litmusNeutral[1]);
+      } else if (section.icon === "precip") {
+        drawIconPrecip(iconX, iconY, 35);
+      } else if (section.icon === "keys") {
+        // Иконка клавиатуры - три кнопки
+        drawKey(iconX - 20, iconY - 10, "H", 25);
+        drawKey(iconX + 8, iconY - 10, "T", 25);
+        drawKey(iconX - 6, iconY + 12, "R", 25);
+      }
+      
+      // Заголовок секции
+      drawText(section.title, box.x + 100, y + 5, {
+        color: COLORS.textDark, fontsize: 18, weight: 700
+      });
+      
+      // Текст
+      const lines = wrapText(section.text, 75);
+      let ly = y + 30;
+      for (const line of lines) {
+        drawText(line, box.x + 100, ly, {
+          color: '#546E7A', fontsize: 14, weight: 400
+        });
+        ly += 22;
+      }
+    }
+    y += 95;
+  }
+  
+  ctx.restore();
+  
+  // Кнопка старта
+  drawText("Нажми ПРОБЕЛ чтобы начать", box.x + box.w / 2, box.y + box.h - 25, {
+    align: 'center', baseline: 'middle',
+    color: COLORS.textAccent, fontsize: 18, weight: 700
+  });
+}
+
+// ===================== THEORY OVERLAY =====================
+function drawTheoryOverlay() {
+  ctx.fillStyle = 'rgba(10, 15, 25, 0.98)';
+  ctx.fillRect(0, 0, W, H);
+  
+  const box = { x: 80, y: 40, w: W - 160, h: H - 80 };
+  
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+  ctx.shadowBlur = 40;
+  roundedRect(box.x, box.y, box.w, box.h, 20, COLORS.panelLight, COLORS.panelLightBorder);
+  ctx.shadowBlur = 0;
+  
+  // Заголовок
+  drawText("Справочник детектива", box.x + box.w / 2, box.y + 30, {
+    align: 'center', baseline: 'middle',
+    color: COLORS.textDark, fontsize: 26, weight: 800
+  });
+  
+  // Иконки вверху
+  const iconsY = box.y + 65;
+  drawIconFlask(box.x + box.w / 2 - 80, iconsY, 35, COLORS.litmusAcid);
+  drawIconDrop(box.x + box.w / 2 - 30, iconsY, 25, COLORS.litmusBase[1]);
+  drawIconFlame(box.x + box.w / 2 + 20, iconsY, 28, COLORS.flameYellow);
+  drawIconPrecip(box.x + box.w / 2 + 70, iconsY, 30);
+  
+  // Контент
+  const contentY = box.y + 100;
+  const contentH = box.h - 150;
+  
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(box.x + 20, contentY, box.w - 40, contentH);
+  ctx.clip();
+  
+  const lines = DATA.THEORY_PARAGRAPHS;
+  const lineH = 24;
+  const maxVisible = Math.floor(contentH / lineH);
+  
+  THEORY_SCROLL = clamp(THEORY_SCROLL, 0, Math.max(0, lines.length - maxVisible));
+  
+  let y = contentY + 10;
+  const headings = new Set([
+    "СПРАВОЧНИК ДЕТЕКТИВА",
+    "СТРАТЕГИЯ АНАЛИЗА:",
+    "ИНДИКАТОР СРЕДЫ",
+    "ЛАКМУС:",
+    "ТЕСТЫ НА АНИОНЫ",
+    "ТЕСТ НА КАТИОНЫ",
+    "ПРОБА ПЛАМЕНИ:",
+    "ПРИМЕРЫ",
+    "ЭКОНОМЬТЕ ТЕСТЫ:"
+  ]);
+  
+  for (let i = THEORY_SCROLL; i < Math.min(lines.length, THEORY_SCROLL + maxVisible); i++) {
+    const s = lines[i];
+    let col = '#455A64';
+    let fs = 15;
+    let fw = 400;
+    
+    if (headings.has(s)) {
+      col = COLORS.textDark;
+      fs = 17;
+      fw = 700;
+    } else if (s.startsWith("•")) {
+      col = '#37474F';
+    } else if (s.startsWith("→")) {
+      col = COLORS.textBlue;
+    }
+    
+    drawChem(s, box.x + 30, y, { color: col, fontSize: fs, weight: fw });
+    y += lineH;
+  }
+  
+  ctx.restore();
+  
+  // Скроллбар
+  if (lines.length > maxVisible) {
+    const scrollPercent = THEORY_SCROLL / Math.max(1, lines.length - maxVisible);
+    const trackH = contentH - 20;
+    const indicatorH = Math.max(30, Math.floor((maxVisible / lines.length) * trackH));
+    const indicatorY = contentY + 10 + Math.floor(scrollPercent * (trackH - indicatorH));
+    roundedRect(box.x + box.w - 25, indicatorY, 8, indicatorH, 4, 'rgba(100, 150, 200, 0.5)', null);
+  }
+  
+  // Подсказка внизу
+  drawText("↑↓ или колесо — прокрутка   ESC или T — закрыть", box.x + box.w / 2, box.y + box.h - 25, {
+    align: 'center', color: '#78909C', fontsize: 14
+  });
+}
+
+// ===================== WIN OVERLAY =====================
+function drawWinOverlay() {
+  const box = { x: 200, y: 250, w: W - 400, h: 150 };
+  
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+  ctx.shadowBlur = 30;
+  roundedRect(box.x, box.y, box.w, box.h, 20, COLORS.successBg, COLORS.successBorder);
+  ctx.shadowBlur = 0;
+  
+  drawText("ВЕРНО!", box.x + box.w / 2, box.y + 35, {
+    align: 'center', baseline: 'middle',
+    color: COLORS.textPrimary, fontsize: 32, weight: 800
+  });
+  
+  // Звёзды
+  const cx = box.x + box.w / 2;
+  const got = starsPerLevel[levelIndex];
+  for (let i = 0; i < 3; i++) {
+    drawStar(cx - 60 + i * 60, box.y + 80, 22, i < got);
+  }
+  
+  drawText("ПРОБЕЛ — дальше   R — повторить", box.x + box.w / 2, box.y + box.h - 20, {
+    align: 'center', baseline: 'middle',
+    color: 'rgba(255, 255, 255, 0.7)', fontsize: 14
+  });
+}
+
+// ===================== FAIL OVERLAY =====================
+function drawFailOverlay() {
+  const box = { x: 200, y: 280, w: W - 400, h: 100 };
+  
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+  ctx.shadowBlur = 30;
+  roundedRect(box.x, box.y, box.w, box.h, 20, COLORS.failBg, COLORS.failBorder);
+  ctx.shadowBlur = 0;
+  
+  drawText("Попытки закончились!", box.x + box.w / 2, box.y + 35, {
+    align: 'center', baseline: 'middle',
+    color: COLORS.textPrimary, fontsize: 26, weight: 700
+  });
+  
+  drawText("ПРОБЕЛ — следующий уровень   R — попробовать снова", box.x + box.w / 2, box.y + box.h - 25, {
+    align: 'center', baseline: 'middle',
+    color: 'rgba(255, 255, 255, 0.7)', fontsize: 14
+  });
+}
+
+// ===================== FINAL OVERLAY =====================
+function drawFinalOverlay() {
+  ctx.fillStyle = 'rgba(10, 15, 25, 0.98)';
+  ctx.fillRect(0, 0, W, H);
+  
+  const box = { x: 200, y: 100, w: W - 400, h: H - 200 };
+  
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+  ctx.shadowBlur = 40;
+  roundedRect(box.x, box.y, box.w, box.h, 20, COLORS.infoBg, COLORS.infoBorder);
+  ctx.shadowBlur = 0;
+  
+  drawText("ИГРА ЗАВЕРШЕНА!", box.x + box.w / 2, box.y + 45, {
+    align: 'center', baseline: 'middle',
+    color: COLORS.textPrimary, fontsize: 34, weight: 800
+  });
+  
+  // Колба
+  drawIconFlask(box.x + box.w / 2, box.y + 110, 60, COLORS.textGreen.split('').map(() => COLORS.textGreen));
+  
+  const total = totalStars();
+  drawText(`Результат: ${total} из ${DATA.LEVELS.length * 3}`, box.x + box.w / 2, box.y + 170, {
+    align: 'center', baseline: 'middle',
+    color: COLORS.textGold, fontsize: 26, weight: 700
+  });
+  
+  // Звёзды по уровням
+  const cols = 6;
+  const rows = 2;
+  const cellW = Math.floor((box.w - 60) / cols);
+  const startY = box.y + 220;
+  
+  let idx = 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (idx >= DATA.LEVELS.length) break;
+      const cx = box.x + 30 + c * cellW + cellW / 2;
+      const cy = startY + r * 60;
+      
+      drawText(String(idx + 1), cx, cy - 15, {
+        align: 'center', baseline: 'middle',
+        color: COLORS.textSecondary, fontsize: 14, weight: 600
+      });
+      
+      const got = starsPerLevel[idx];
+      for (let s = 0; s < 3; s++) {
+        drawStar(cx - 24 + s * 24, cy + 10, 9, s < got);
+      }
+      idx++;
+    }
+  }
+  
+  // Комментарий
+  const comment = finalComment(total);
+  const lines = wrapText(comment, 60);
+  let ly = box.y + box.h - 90;
+  for (const line of lines) {
+    drawText(line, box.x + box.w / 2, ly, {
+      align: 'center', color: COLORS.textPrimary, fontsize: 16
+    });
+    ly += 24;
+  }
+  
+  drawText("R — начать заново   T — теория", box.x + box.w / 2, box.y + box.h - 25, {
+    align: 'center', baseline: 'middle',
+    color: COLORS.textSecondary, fontsize: 14
+  });
+}
+
+// ===================== ГЛАВНЫЙ ЦИКЛ РИСОВАНИЯ =====================
+function draw() {
+  drawBackground();
+  
+  if (state === "intro") {
+    drawIntroOverlay();
+  } else if (state === "theory") {
+    drawTheoryOverlay();
+  } else if (state === "final") {
+    drawFinalOverlay();
+  } else {
+    drawTopPanel();
+    drawReagentShelf();
+    drawSubstancesBlock();
+    drawRightJournal();
+    drawFlasks();
+    drawBottomConfirm();
+    
+    if (state === "win") {
+      drawWinOverlay();
+    } else if (state === "fail") {
+      drawFailOverlay();
+    }
+  }
+}
+
+// ===================== ИГРОВОЙ ЦИКЛ =====================
+let lastTs = null;
+function loop(ts) {
+  if (lastTs === null) lastTs = ts;
+  let dt = (ts - lastTs) / 1000;
+  lastTs = ts;
+  dt = clamp(dt, 0, 0.05);
+  
+  animTime += dt;
+  
+  // Анимация пузырьков
+  for (const f of flasks) {
+    for (const b of f.bubbles) {
+      b[1] -= b[2];
+      if (b[1] < f.rect.y + f.rect.h - 60) {
+        b[1] = f.rect.y + f.rect.h - 12;
+      }
+    }
+  }
+  
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// ===================== ВВОД =====================
+function canvasToGameCoords(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = W / rect.width;
+  const scaleY = H / rect.height;
+  return {
+    x: (e.clientX - rect.left) * scaleX,
+    y: (e.clientY - rect.top) * scaleY
+  };
+}
+
+canvas.addEventListener("click", (e) => {
+  const { x, y } = canvasToGameCoords(e);
+  
+  if (state === "intro") {
+    state = "play";
+    return;
+  }
+  
+  if (state !== "play") return;
+  
+  // Клик по реагентам
+  let reagentY = 48;
+  for (const [key] of DATA.REAGENTS) {
+    const box = { x: 12, y: reagentY, w: LEFT_W - 24, h: 46 };
+    if (rectContains(box, x, y)) {
+      if (currentLevel().available_tests.includes(key)) {
+        selectedReagent = key;
+      }
+      return;
+    }
+    reagentY += 54;
+  }
+  
+  // Клик по колбам
+  if (selectedReagent) {
+    for (const f of flasks) {
+      if (rectContains(f.rect, x, y)) {
+        const msg = applyReagent(f, selectedReagent);
+        log(msg);
+        return;
+      }
+    }
+  }
+});
+
+canvas.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  if (state !== "play") return;
+  
+  const { x, y } = canvasToGameCoords(e);
+  
+  for (const f of flasks) {
+    const answerBox = {
+      x: f.rect.x + f.rect.w / 2 - 45,
+      y: f.rect.y + f.rect.h + 8,
+      w: 90,
+      h: 28
+    };
+    if (rectContains(f.rect, x, y) || rectContains(answerBox, x, y)) {
+      f.cycle_guess();
+      return;
+    }
+  }
+});
+
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const dir = e.deltaY > 0 ? 1 : -1;
+  const { x } = canvasToGameCoords(e);
+  
+  if (state === "intro") {
+    INTRO_SCROLL = Math.max(0, INTRO_SCROLL + dir);
+    return;
+  }
+  if (state === "theory") {
+    THEORY_SCROLL = Math.max(0, THEORY_SCROLL + dir * 2);
+    return;
+  }
+  if (x >= W - RIGHT_W) {
+    JOURNAL_SCROLL = Math.max(0, JOURNAL_SCROLL + dir * 2);
+    return;
+  }
+}, { passive: false });
+
+window.addEventListener("keydown", (evt) => {
+  const key = evt.key;
+  
+  if (state === "intro") {
+    if (key === "ArrowUp") { INTRO_SCROLL = Math.max(0, INTRO_SCROLL - 1); return; }
+    if (key === "ArrowDown") { INTRO_SCROLL = INTRO_SCROLL + 1; return; }
+  }
+  
+  if (state === "fail") {
+    if (key === "r" || key === "R") {
+      resetLevel();
+      state = "play";
+      return;
+    }
+    if (key === " " || key === "n" || key === "N") {
+      if (levelIndex < DATA.LEVELS.length - 1) {
+        levelIndex += 1;
+        resetLevel();
+        state = "play";
+      } else {
+        state = "final";
+      }
+      return;
+    }
+  }
+  
+  if (key === "t" || key === "T") {
+    if (state === "theory") {
+      state = prevStateForTheory || "play";
+      prevStateForTheory = null;
+    } else if (["play", "win", "final", "intro"].includes(state)) {
+      prevStateForTheory = state;
+      state = "theory";
+    }
+    return;
+  }
+  
+  if (key === "Escape" && state === "theory") {
+    state = prevStateForTheory || "play";
+    prevStateForTheory = null;
+    return;
+  }
+  
+  if ((key === "h" || key === "H") && state === "play") {
+    const prev = showHint;
+    showHint = !showHint;
+    if (!prev && showHint && !hintUsedThisLevel) {
+      hintUsedThisLevel = true;
+      testsUsed += 1;
+    }
+    return;
+  }
+  
+  if (key === "r" || key === "R") {
+    if (state === "play" || state === "win") {
+      resetLevel();
+      state = "play";
+      return;
+    }
+    if (state === "final") {
+      levelIndex = 0;
+      starsPerLevel = new Array(DATA.LEVELS.length).fill(0);
+      resetLevel();
+      state = "intro";
+      return;
+    }
+  }
+  
+  if (key === " ") {
+    evt.preventDefault();
+    if (state === "intro") {
+      state = "play";
+      return;
+    }
+    if (state === "win") {
+      goNextLevel();
+      return;
+    }
+    if (state === "final") {
+      return;
+    }
+    if (state === "play") {
+      guessAttempts += 1;
+      const ok = checkAnswers();
+      if (ok) {
+        const lvl = currentLevel();
+        const stars = calculateStars(lvl.max_tests, testsUsed, guessAttempts);
+        starsPerLevel[levelIndex] = Math.max(starsPerLevel[levelIndex], stars);
+        state = "win";
+      } else {
+        if (guessAttempts >= ATTEMPT_LIMIT) {
+          state = "fail";
+        } else {
+          log("Не все отгадки верны — попробуйте ещё раз.");
+        }
+      }
+      return;
+    }
+  }
+  
+  if ((key === "n" || key === "N") && state === "win") {
+    goNextLevel();
+    return;
+  }
+  
+  if (state === "theory") {
+    if (key === "ArrowUp") THEORY_SCROLL = Math.max(0, THEORY_SCROLL - 2);
+    if (key === "ArrowDown") THEORY_SCROLL = Math.max(0, THEORY_SCROLL + 2);
+    return;
+  }
+});
+
+window.GameInstance = {
+  exportState(){ return { v: 1, levelIndex, starsPerLevel: Array.isArray(starsPerLevel) ? starsPerLevel.slice() : [] }; },
+  importState(s){
+    if (!s || typeof s !== "object") return;
+    if (Number.isInteger(s.levelIndex)) levelIndex = Math.max(0, Math.min(LEVELS.length-1, s.levelIndex));
+    if (Array.isArray(s.starsPerLevel)) {
+      starsPerLevel = s.starsPerLevel.map(x => Math.max(0, Math.min(3, Number(x)||0)));
+      while (starsPerLevel.length < LEVELS.length) starsPerLevel.push(0);
+      starsPerLevel = starsPerLevel.slice(0, LEVELS.length);
+    }
+    resetLevel();
+    state = "play";
+  },
+  getSessionSummary(){
+    const by = Array.isArray(starsPerLevel) ? starsPerLevel.slice() : [];
+    return {
+      stars_total: (typeof totalStars === "function") ? totalStars() : by.reduce((a,b)=>a+(+b||0),0),
+      stars_by_level: by,
+      level_reached: (Number.isInteger(levelIndex) ? levelIndex+1 : null),
+    };
+  }
+};
+</script>
+<script src="/platform/client.js"></script>
+<script src="/platform/bridge.js"></script>
+</body>
+</html>

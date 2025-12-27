@@ -1,0 +1,888 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Молекулярный конструктор</title>
+  <link rel="stylesheet" href="/assets/fonts/nunito/wght.css">
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      display: grid;
+      place-items: center;
+      padding: 14px;
+      box-sizing: border-box;
+      font-family: "Nunito Variable", sans-serif;
+    }
+    canvas {
+      width: min(1100px, calc(100vw - 28px));
+      aspect-ratio: 1000 / 600;
+      border-radius: 20px;
+      box-shadow: 
+        0 20px 60px rgba(0,0,0,0.5),
+        0 0 40px rgba(100, 200, 255, 0.15),
+        inset 0 0 80px rgba(255,255,255,0.05);
+      outline: 2px solid rgba(255,255,255,0.1);
+      display: block;
+      touch-action: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game" width="1000" height="600" aria-label="Молекулярный конструктор"></canvas>
+
+<script>
+(() => {
+  "use strict";
+  window.__GAME_ID__ = "constructor";
+  // ========================== ЦВЕТОВАЯ ПАЛИТРА ==========================
+  const COLORS = {
+    // Фоны
+    bgGradientTop: '#E8F5E9',
+    bgGradientMiddle: '#E3F2FD',
+    bgGradientBottom: '#F3E5F5',
+    
+    // Панели
+    panelLight: 'rgba(255, 255, 255, 0.98)',
+    panelLightBorder: 'rgba(100, 150, 200, 0.3)',
+    panelDark: 'rgba(30, 50, 80, 0.95)',
+    panelDarkBorder: 'rgba(100, 180, 255, 0.4)',
+    panelTop: 'rgba(240, 248, 255, 0.98)',
+    panelLeft: 'rgba(245, 250, 255, 0.95)',
+    panelBottom: 'rgba(235, 245, 255, 0.98)',
+    
+    // Сетка
+    gridBg: 'rgba(250, 252, 255, 0.95)',
+    gridLines: 'rgba(180, 200, 230, 0.4)',
+    gridHover: 'rgba(100, 180, 255, 0.3)',
+    
+    // Тексты
+    textPrimary: '#1A237E',
+    textSecondary: '#546E7A',
+    textAccent: '#2196F3',
+    textSuccess: '#4CAF50',
+    textWarning: '#FF9800',
+    textError: '#F44336',
+    textGold: '#FFC107',
+    textWhite: '#FFFFFF',
+    
+    // Элементы периодической таблицы
+    atomH: ['#FAFAFA', '#E0E0E0', '#BDBDBD'],
+    atomC: ['#616161', '#424242', '#212121'],
+    atomO: ['#EF5350', '#E53935', '#C62828'],
+    atomN: ['#5C6BC0', '#3F51B5', '#283593'],
+    atomS: ['#FFEE58', '#FFEB3B', '#FDD835'],
+    atomCl: ['#66BB6A', '#4CAF50', '#388E3C'],
+    atomF: ['#81C784', '#66BB6A', '#4CAF50'],
+    
+    // Статусы валентности
+    statusOk: '#4CAF50',
+    statusUnder: '#FFC107',
+    statusOver: '#F44336',
+    
+    // Связи
+    bondSingle: '#455A64',
+    bondDouble: '#1565C0',
+    bondTriple: '#6A1B9A',
+    bondHover: '#2196F3',
+    
+    // Звёзды
+    starGold: '#FFD700',
+    starGoldDark: '#FFA000',
+    starEmpty: '#B0BEC5',
+    
+    // Оверлеи
+    successBg: 'rgba(46, 125, 50, 0.95)',
+    successBorder: '#81C784',
+    failBg: 'rgba(198, 40, 40, 0.95)',
+    failBorder: '#EF5350',
+    
+    // Частицы
+    particleGreen: [129, 199, 132],
+    particleBlue: [100, 181, 246],
+    particleRed: [239, 83, 80],
+  };
+
+  // ========================== ДАННЫЕ ИГРЫ ==========================
+  const DATA = {"TITLE":"Молекулярный конструктор","WIDTH":1000,"HEIGHT":600,"ELEMENTS":{"H":{"color":[250,250,250],"border":[160,160,160],"radius":14,"valence":1},"C":{"color":[40,40,40],"border":[220,220,220],"radius":20,"valence":4},"O":{"color":[220,60,60],"border":[120,0,0],"radius":18,"valence":2},"N":{"color":[60,90,220],"border":[20,20,80],"radius":18,"valence":3},"S":{"color":[240,220,80],"border":[150,120,0],"radius":20,"valence":2},"Cl":{"color":[60,200,60],"border":[0,80,0],"radius":18,"valence":1},"F":{"color":[170,250,170],"border":[40,120,40],"radius":16,"valence":1}},"ELEMENT_ORDER":["C","H","O","N","S","Cl","F"],"LEVEL_TYPE_LABEL":{"tutorial":"Обучение","basic":"Базовый","organic":"Органика","advanced":"Продвинутый","complex":"Сложный"},"LEVELS":[{"name":"Молекула водорода","type":"tutorial","target_formula":"H2","available_atoms":{"H":2},"hint":"Соедини два атома водорода одинарной связью."},{"name":"Молекула воды","type":"tutorial","target_formula":"H2O","available_atoms":{"H":2,"O":1},"hint":"Кислород имеет валентность 2, водород — 1."},{"name":"Хлороводород","type":"tutorial","target_formula":"HCl","available_atoms":{"H":1,"Cl":1},"hint":"Оба элемента имеют валентность 1."},{"name":"Метан","type":"basic","target_formula":"CH4","available_atoms":{"C":1,"H":4},"hint":"Углерод образует 4 связи."},{"name":"Аммиак","type":"basic","target_formula":"NH3","available_atoms":{"N":1,"H":3},"hint":"Азот имеет валентность 3."},{"name":"Углекислый газ","type":"basic","target_formula":"CO2","available_atoms":{"C":1,"O":2},"double_bonds":true,"hint":"Углероду нужно 4 связи. Сделай двойные связи с кислородом: O=C=O."},{"name":"Этилен","type":"organic","target_formula":"C2H4","available_atoms":{"C":2,"H":4},"double_bonds":true,"hint":"Между двумя углеродами должна быть двойная связь (C=C)."},{"name":"Ацетилен","type":"organic","target_formula":"C2H2","available_atoms":{"C":2,"H":2},"hint":"Сделай тройную связь между углеродами C≡C."},{"name":"Формальдегид","type":"organic","target_formula":"CH2O","available_atoms":{"C":1,"H":2,"O":1},"double_bonds":true,"hint":"Между C и O должна быть двойная связь C=O."},{"name":"Перекись водорода","type":"advanced","target_formula":"H2O2","available_atoms":{"H":2,"O":2},"hint":"Два кислорода соединены: H–O–O–H."},{"name":"Серная кислота","type":"complex","target_formula":"H2SO4","available_atoms":{"H":2,"S":1,"O":4},"double_bonds":true,"valence_overrides":{"S":6},"hint":"Сера в центре с валентностью 6."},{"name":"Бензол","type":"complex","target_formula":"C6H6","available_atoms":{"C":6,"H":6},"aromatic":true,"hint":"Замкни 6 углеродов в кольцо."}],"HINTS":{"valence_error":"Ошибка валентности! Атом {element} имеет {required} связей.","missing_bonds":"Все атомы должны быть соединены!","wrong_formula":"Формула неверная (сейчас {current}).","wrong_structure":"Состав верный, но структура не та."},"ATTEMPT_LIMIT":5};
+
+  const TITLE = DATA.TITLE;
+  const WIDTH = DATA.WIDTH, HEIGHT = DATA.HEIGHT;
+
+  const TOP_H = 70;
+  const BOTTOM_H = 70;
+  const PALETTE_W = 160;
+
+  const FIELD_X = PALETTE_W;
+  const FIELD_Y = TOP_H;
+  const FIELD_BOTTOM = HEIGHT - BOTTOM_H;
+  const FIELD_W = WIDTH - FIELD_X;
+  const FIELD_H = FIELD_BOTTOM - FIELD_Y;
+
+  const CELL = 40;
+  const GRID_MARGIN_X = 10;
+  const GRID_MARGIN_Y = 10;
+  const GRID_COLS = Math.floor((FIELD_W - 2 * GRID_MARGIN_X) / CELL);
+  const GRID_ROWS = Math.floor((FIELD_H - 2 * GRID_MARGIN_Y) / CELL);
+  const GRID_W = GRID_COLS * CELL;
+  const GRID_H = GRID_ROWS * CELL;
+  const GRID_ORIGIN_X = FIELD_X + Math.floor((FIELD_W - GRID_W) / 2);
+  const GRID_ORIGIN_Y = FIELD_Y + Math.floor((FIELD_H - GRID_H) / 2);
+
+  const ATTEMPT_LIMIT = DATA.ATTEMPT_LIMIT;
+  const ELEMENTS = DATA.ELEMENTS;
+  const LEVELS = DATA.LEVELS;
+  const LEVEL_TYPE_LABEL = DATA.LEVEL_TYPE_LABEL;
+  const ELEMENT_ORDER = DATA.ELEMENT_ORDER;
+  const HINTS = DATA.HINTS;
+
+  const ATOM_STYLES = {
+    H: { colors: COLORS.atomH, name: 'Водород', valence: 1 },
+    C: { colors: COLORS.atomC, name: 'Углерод', valence: 4 },
+    O: { colors: COLORS.atomO, name: 'Кислород', valence: 2 },
+    N: { colors: COLORS.atomN, name: 'Азот', valence: 3 },
+    S: { colors: COLORS.atomS, name: 'Сера', valence: 2 },
+    Cl: { colors: COLORS.atomCl, name: 'Хлор', valence: 1 },
+    F: { colors: COLORS.atomF, name: 'Фтор', valence: 1 },
+  };
+
+  // ========================== ТЕКСТЫ ==========================
+  const INTRO_SECTIONS = [
+    {
+      title: "Добро пожаловать в лабораторию!",
+      icon: "flask",
+      text: "Ты — молекулярный инженер! Собирай молекулы из атомов, как из деталей LEGO. У каждого атома есть строгое число «рук» для связей."
+    },
+    {
+      title: "Что такое валентность?",
+      icon: "atom",
+      text: "Валентность — число связей атома. H=1, O=2, N=3, C=4. Зелёный ободок = норма, жёлтый = мало связей, красный = много!"
+    },
+    {
+      title: "Как строить молекулы?",
+      icon: "bond",
+      text: "Перетащи атом на поле. Кликни по двум атомам — появится связь. Колёсико мыши меняет тип: одинарная → двойная → тройная."
+    },
+    {
+      title: "Управление",
+      icon: "keys",
+      text: "Левая кнопка мыши: поставить/соединить. Правая кнопка мыши: удалить. Колёсико: кратность связи. ПРОБЕЛ: проверить молекулу."
+    }
+  ];
+
+  const THEORY_SECTIONS = [
+    {
+      title: "Валентность атомов",
+      icon: "atom",
+      text: "C (углерод) = 4 руки — основа органики\nN (азот) = 3 руки\nO (кислород) = 2 руки\nH (водород) = 1 рука — всегда на краю"
+    },
+    {
+      title: "Типы связей",
+      icon: "bond",
+      text: "Одинарная (—): обычная связь\nДвойная (=): в CO₂, этилене\nТройная (≡): в ацетилене, азоте N₂"
+    },
+    {
+      title: "Стратегия сборки",
+      icon: "strategy",
+      text: "1. Расставь «скелет» — атомы C, N, S\n2. Соедини их между собой\n3. Добавь кислород (O)\n4. Последним — водород (H) как «заглушки»"
+    },
+    {
+      title: "Подсказки по цветам",
+      icon: "colors",
+      text: "Зелёный — валентность в норме\nЖёлтый — мало связей, добавь ещё\nКрасный — много связей, убери"
+    }
+  ];
+
+  // ========================== КАНВАС ==========================
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  document.title = TITLE;
+
+  let animTime = 0;
+
+  function resizeCanvasToCSS(){
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const realW = Math.max(1, Math.round(rect.width * dpr));
+    const realH = Math.max(1, Math.round(rect.height * dpr));
+    if (canvas.width !== realW || canvas.height !== realH){
+      canvas.width = realW;
+      canvas.height = realH;
+    }
+    ctx.setTransform(realW / WIDTH, 0, 0, realH / HEIGHT, 0, 0);
+  }
+  window.addEventListener("resize", resizeCanvasToCSS);
+  resizeCanvasToCSS();
+
+  function getMousePos(e){
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = WIDTH / rect.width;
+    const scaleY = HEIGHT / rect.height;
+    return [(e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY];
+  }
+
+  // ========================== ПРИМИТИВЫ ==========================
+  function drawText(text, x, y, opts = {}){
+    const { color = COLORS.textPrimary, fontsize = 16, align = "left", baseline = "top", owidth = 0, ocolor = "rgba(0,0,0,0.5)", weight = 600 } = opts;
+    ctx.font = `${weight} ${fontsize}px "Nunito Variable", "Nunito", sans-serif`;
+    ctx.textAlign = align;
+    ctx.textBaseline = baseline;
+    if (owidth > 0){ ctx.lineWidth = owidth * 2; ctx.strokeStyle = ocolor; ctx.strokeText(String(text), x, y); ctx.lineWidth = 1; }
+    ctx.fillStyle = color;
+    ctx.fillText(String(text), x, y);
+  }
+
+  function fillRect(x, y, w, h, color){ ctx.fillStyle = color; ctx.fillRect(x, y, w, h); }
+
+  function roundedRect(x, y, w, h, r, fill, stroke, strokeWidth = 2){
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, r);
+    if (fill){ ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke){ ctx.strokeStyle = stroke; ctx.lineWidth = strokeWidth; ctx.stroke(); ctx.lineWidth = 1; }
+  }
+
+  function filledCircle(x, y, r, color){ ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+
+  function drawStar(cx, cy, r, filled){
+    const pts = [];
+    for (let i = 0; i < 10; i++){
+      const ang = (-90 + i * 36) * Math.PI / 180;
+      const rr = (i % 2 === 0) ? r : r * 0.45;
+      pts.push({x: cx + rr * Math.cos(ang), y: cy + rr * Math.sin(ang)});
+    }
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.closePath();
+    if (filled){
+      const grad = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+      grad.addColorStop(0, COLORS.starGold); grad.addColorStop(1, COLORS.starGoldDark);
+      ctx.fillStyle = grad; ctx.shadowColor = 'rgba(255, 215, 0, 0.5)'; ctx.shadowBlur = 8;
+    } else { ctx.fillStyle = COLORS.starEmpty; ctx.shadowBlur = 0; }
+    ctx.fill(); ctx.shadowBlur = 0;
+    ctx.strokeStyle = filled ? '#B8860B' : '#78909C'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.lineWidth = 1;
+  }
+
+  // ========================== ИКОНКИ ==========================
+  function drawIconAtom(x, y, size, element = 'C'){
+    const style = ATOM_STYLES[element] || ATOM_STYLES.C;
+    const r = size / 2;
+    ctx.shadowColor = 'rgba(0,0,0,0.3)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 3;
+    const grad = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, 0, x, y, r);
+    grad.addColorStop(0, style.colors[0]); grad.addColorStop(0.6, style.colors[1]); grad.addColorStop(1, style.colors[2]);
+    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+    ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 2; ctx.stroke(); ctx.lineWidth = 1;
+    ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.beginPath();
+    ctx.ellipse(x - r * 0.25, y - r * 0.3, r * 0.35, r * 0.2, -45 * Math.PI / 180, 0, Math.PI * 2); ctx.fill();
+    const textColor = (element === 'C') ? '#FFFFFF' : (element === 'S' ? '#333' : '#FFFFFF');
+    drawText(element, x, y, { align: 'center', baseline: 'middle', color: textColor, fontsize: size * 0.5, weight: 800 });
+  }
+
+  function drawIconBond(x, y, w, type = 1){
+    const colors = [COLORS.bondSingle, COLORS.bondDouble, COLORS.bondTriple];
+    ctx.strokeStyle = colors[Math.min(type - 1, 2)]; ctx.lineWidth = type === 1 ? 4 : 3; ctx.lineCap = 'round';
+    if (type === 1){ ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.stroke(); }
+    else if (type === 2){ ctx.beginPath(); ctx.moveTo(x, y - 4); ctx.lineTo(x + w, y - 4); ctx.moveTo(x, y + 4); ctx.lineTo(x + w, y + 4); ctx.stroke(); }
+    else { ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x + w, y - 6); ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.moveTo(x, y + 6); ctx.lineTo(x + w, y + 6); ctx.stroke(); }
+    ctx.lineWidth = 1; ctx.lineCap = 'butt';
+  }
+
+  function drawIconFlask(x, y, size){
+    ctx.save(); ctx.translate(x, y);
+    const h = size, w = size * 0.6;
+    const liquidGrad = ctx.createLinearGradient(0, h * 0.3, 0, h);
+    liquidGrad.addColorStop(0, 'rgba(100, 200, 255, 0.6)'); liquidGrad.addColorStop(1, 'rgba(50, 150, 220, 0.8)');
+    ctx.fillStyle = liquidGrad; ctx.beginPath();
+    ctx.moveTo(-w * 0.15, h * 0.3); ctx.lineTo(-w * 0.4, h * 0.8); ctx.quadraticCurveTo(-w * 0.45, h, 0, h);
+    ctx.quadraticCurveTo(w * 0.45, h, w * 0.4, h * 0.8); ctx.lineTo(w * 0.15, h * 0.3); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#546E7A'; ctx.lineWidth = 2; ctx.beginPath();
+    ctx.moveTo(-w * 0.15, 0); ctx.lineTo(-w * 0.15, h * 0.25); ctx.lineTo(-w * 0.4, h * 0.8);
+    ctx.quadraticCurveTo(-w * 0.45, h, 0, h); ctx.quadraticCurveTo(w * 0.45, h, w * 0.4, h * 0.8);
+    ctx.lineTo(w * 0.15, h * 0.25); ctx.lineTo(w * 0.15, 0); ctx.stroke();
+    ctx.fillStyle = '#90A4AE'; ctx.fillRect(-w * 0.18, -h * 0.1, w * 0.36, h * 0.15);
+    ctx.fillStyle = 'rgba(255,255,255,0.6)'; filledCircle(-w * 0.1, h * 0.6, 3); filledCircle(w * 0.15, h * 0.7, 2);
+    ctx.restore();
+  }
+
+  function drawKey(x, y, text, width = 40){
+    const h = 26, w = width;
+    roundedRect(x + 2, y + 2, w, h, 5, 'rgba(0,0,0,0.2)', null);
+    const grad = ctx.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, '#607D8B'); grad.addColorStop(1, '#455A64');
+    roundedRect(x, y, w, h, 5, grad, '#78909C');
+    drawText(text, x + w / 2, y + h / 2, { align: 'center', baseline: 'middle', color: '#ECEFF1', fontsize: text.length > 3 ? 9 : 12, weight: 700 });
+  }
+
+  function drawIconMolecule(x, y, size){
+    drawIconAtom(x, y, size * 0.6, 'O');
+    drawIconAtom(x - size * 0.5, y + size * 0.3, size * 0.35, 'H');
+    drawIconAtom(x + size * 0.5, y + size * 0.3, size * 0.35, 'H');
+    ctx.strokeStyle = COLORS.bondSingle; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x - size * 0.25, y + size * 0.1); ctx.lineTo(x - size * 0.4, y + size * 0.2);
+    ctx.moveTo(x + size * 0.25, y + size * 0.1); ctx.lineTo(x + size * 0.4, y + size * 0.2); ctx.stroke(); ctx.lineWidth = 1;
+  }
+
+  function drawIconStrategy(x, y, size){
+    const r = size / 2, teeth = 8;
+    ctx.fillStyle = '#78909C'; ctx.beginPath();
+    for (let i = 0; i < teeth * 2; i++){
+      const ang = (i * 360 / (teeth * 2) - 90) * Math.PI / 180;
+      const rr = (i % 2 === 0) ? r : r * 0.7;
+      if (i === 0) ctx.moveTo(x + rr * Math.cos(ang), y + rr * Math.sin(ang));
+      else ctx.lineTo(x + rr * Math.cos(ang), y + rr * Math.sin(ang));
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = COLORS.panelLight; filledCircle(x, y, r * 0.35);
+  }
+
+  function drawIconColors(x, y, size){
+    const r = size / 4;
+    filledCircle(x - r, y - r * 0.5, r, COLORS.statusOk);
+    filledCircle(x + r, y - r * 0.5, r, COLORS.statusUnder);
+    filledCircle(x, y + r * 0.5, r, COLORS.statusError);
+  }
+
+  // ========================== ХИМИЧЕСКИЙ ТЕКСТ ==========================
+  const SUBS = {"₀":"0","₁":"1","₂":"2","₃":"3","₄":"4","₅":"5","₆":"6","₇":"7","₈":"8","₉":"9"};
+
+  function drawChem(text, x, y, opts = {}){
+    const { color = COLORS.textPrimary, fontsize = 16, align = "left", baseline = "top", weight = 600 } = opts;
+    text = String(text);
+    let width = 0;
+    const base_fs = fontsize, small_fs = Math.max(10, Math.floor(fontsize * 0.7));
+    ctx.font = `${weight} ${base_fs}px 'Nunito', sans-serif`;
+    for (const ch of text){
+      if (ch in SUBS){ ctx.font = `${weight} ${small_fs}px 'Nunito', sans-serif`; width += ctx.measureText(SUBS[ch]).width; ctx.font = `${weight} ${base_fs}px 'Nunito', sans-serif`; }
+      else { width += ctx.measureText(ch).width; }
+    }
+    let xx = x;
+    if (align === "center") xx = x - width / 2;
+    else if (align === "right") xx = x - width;
+    const dy_sub = Math.floor(fontsize * 0.25);
+    ctx.textBaseline = baseline; ctx.fillStyle = color;
+    for (const ch of text){
+      if (ch in SUBS){ ctx.font = `${weight} ${small_fs}px 'Nunito', sans-serif`; ctx.fillText(SUBS[ch], xx, y + dy_sub); xx += ctx.measureText(SUBS[ch]).width; }
+      else { ctx.font = `${weight} ${base_fs}px 'Nunito', sans-serif`; ctx.fillText(ch, xx, y); xx += ctx.measureText(ch).width; }
+    }
+  }
+
+  function wrapText(text, maxLen = 55){
+    const words = String(text).split(/\s+/).filter(Boolean);
+    const lines = []; let cur = "";
+    for (const w of words){
+      if (cur.length + w.length + (cur ? 1 : 0) <= maxLen){ cur = cur ? (cur + " " + w) : w; }
+      else { if (cur) lines.push(cur); cur = w; }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
+  // ========================== УРОВНИ ==========================
+  function parse_formula(s){
+    if (!s) return null;
+    const comp = {}; const re = /([A-Z][a-z]?)(\d*)/g; let m;
+    while ((m = re.exec(s)) !== null){ const elem = m[1], num = m[2], n = num ? parseInt(num, 10) : 1; comp[elem] = (comp[elem] || 0) + n; }
+    return comp;
+  }
+
+  function format_formula(comp){
+    if (!comp) return "";
+    const parts = [], used = new Set();
+    for (const e of ELEMENT_ORDER){ if (comp[e]){ const n = comp[e]; if (n > 0) parts.push(e + (n > 1 ? String(n) : "")); used.add(e); }}
+    const rest = Object.keys(comp).filter(k => !used.has(k)).sort();
+    for (const e of rest){ const n = comp[e]; if (n > 0) parts.push(e + (n > 1 ? String(n) : "")); }
+    return parts.join("");
+  }
+
+  for (const lvl of LEVELS){ const f = lvl.target_formula || null; lvl.target_formula = f; lvl.target_comp = f ? parse_formula(f) : null; }
+
+  // ========================== КЛАССЫ ==========================
+  let NEXT_ATOM_ID = 1;
+  class Atom { constructor(element, gx, gy){ this.id = NEXT_ATOM_ID++; this.element = element; this.gx = gx; this.gy = gy; }
+    screen_pos(){ return [GRID_ORIGIN_X + this.gx * CELL + Math.floor(CELL / 2), GRID_ORIGIN_Y + this.gy * CELL + Math.floor(CELL / 2)]; }}
+  class Bond { constructor(a, b, order = 1){ this.a = a; this.b = b; this.order = order; }}
+
+  // ========================== СОСТОЯНИЕ ==========================
+  let state = "intro", level_index = 0;
+  const stars_per_level = new Array(LEVELS.length).fill(0);
+  let atoms = [], bonds = [], available_atoms = {}, palette_remaining = {}, palette_elements_order = [];
+  let selected_atom = null, drag_mode = null, drag_atom = null, drag_element = null, drag_pos = [0, 0];
+  let mouse_pos = [0, 0], mouse_down_button = null, mouse_down_pos = [0, 0], mouse_drag_moved = false;
+  let attempts = 0, moves_used = 0, hint_used_this_level = false, show_hint = false;
+  let last_feedback_msg = "Построй молекулу и нажми ПРОБЕЛ.", last_feedback_type = "info";
+  let success_flash_until = 0, error_flash_until = 0, particles = [];
+  let THEORY_SCROLL = 0, INTRO_SCROLL = 0, PREV_STATE = null;
+
+  // ========================== HELPERS ==========================
+  function nowSec(){ return performance.now() / 1000; }
+  function current_level(){ return LEVELS[level_index]; }
+  function clamp(v, vmin, vmax){ return Math.max(vmin, Math.min(vmax, v)); }
+  function point_in_field(px, py){ return (FIELD_X <= px && px < WIDTH && FIELD_Y <= py && py < FIELD_BOTTOM); }
+
+  function screen_to_grid(px, py){
+    if (!point_in_field(px, py)) return null;
+    const gx = Math.floor((px - GRID_ORIGIN_X) / CELL), gy = Math.floor((py - GRID_ORIGIN_Y) / CELL);
+    if (0 <= gx && gx < GRID_COLS && 0 <= gy && gy < GRID_ROWS) return [gx, gy];
+    return null;
+  }
+
+  function atom_at_grid(gx, gy){ for (const a of atoms) if (a.gx === gx && a.gy === gy) return a; return null; }
+
+  function atom_at_pos(px, py, max_dist = 20){
+    let best = null, best_d2 = max_dist * max_dist;
+    for (const a of atoms){ const [ax, ay] = a.screen_pos(); const d2 = (ax - px) * (ax - px) + (ay - py) * (ay - py); if (d2 <= best_d2){ best_d2 = d2; best = a; }}
+    return best;
+  }
+
+  function get_valence(element, lvl = null){ const base = ELEMENTS[element].valence; if (!lvl) return base; const vo = lvl.valence_overrides || {}; return (vo[element] != null) ? vo[element] : base; }
+  function count_bonds_for(atom){ let c = 0; for (const b of bonds) if (b.a === atom || b.b === atom) c += b.order; return c; }
+
+  function get_atom_status(atom, lvl){
+    const v = get_valence(atom.element, lvl), c = count_bonds_for(atom);
+    if (c === v) return ["ok", v, c]; if (c < v) return ["under", v, c]; return ["over", v, c];
+  }
+
+  function bond_midpoint(b){ const [x1, y1] = b.a.screen_pos(), [x2, y2] = b.b.screen_pos(); return [(x1 + x2) / 2, (y1 + y2) / 2]; }
+
+  function point_segment_distance(px, py, x1, y1, x2, y2){
+    const vx = x2 - x1, vy = y2 - y1, wx = px - x1, wy = py - y1, len2 = vx * vx + vy * vy;
+    if (len2 === 0) return Math.hypot(px - x1, py - y1);
+    let t = clamp((wx * vx + wy * vy) / len2, 0, 1);
+    return Math.hypot(px - (x1 + t * vx), py - (y1 + t * vy));
+  }
+
+  function bond_at_pos(px, py, threshold = 8){
+    let best = null, best_d = threshold;
+    for (const b of bonds){ const [x1, y1] = b.a.screen_pos(), [x2, y2] = b.b.screen_pos(); const d = point_segment_distance(px, py, x1, y1, x2, y2); if (d <= best_d){ best_d = d; best = b; }}
+    return best;
+  }
+
+  function spawn_particles(x, y, base_color){
+    for (let i = 0; i < 12; i++){
+      const ang = Math.random() * Math.PI * 2, speed = 50 + Math.random() * 80;
+      const vx = Math.cos(ang) * speed, vy = Math.sin(ang) * speed, life = 0.4 + Math.random() * 0.4;
+      const col = [clamp(base_color[0] + Math.random() * 40 - 20, 0, 255)|0, clamp(base_color[1] + Math.random() * 40 - 20, 0, 255)|0, clamp(base_color[2] + Math.random() * 40 - 20, 0, 255)|0];
+      particles.push({x, y, vx, vy, life, maxLife: life, color: col, size: 3 + Math.random() * 3});
+    }
+  }
+
+  function build_adjacency(){ const adj = {}; for (const a of atoms) adj[a.id] = []; for (const b of bonds){ if (adj[b.a.id] && adj[b.b.id]){ adj[b.a.id].push([b.b, b.order]); adj[b.b.id].push([b.a, b.order]); }} return adj; }
+
+  function graph_is_connected(){
+    if (!atoms.length) return false;
+    const adj = build_adjacency(), visited = new Set();
+    function dfs(aid){ visited.add(aid); for (const [nb, _] of adj[aid]) if (!visited.has(nb.id)) dfs(nb.id); }
+    dfs(atoms[0].id);
+    return visited.size === atoms.length;
+  }
+
+  function is_benzene_like(){
+    const Cs = atoms.filter(a => a.element === "C"), Hs = atoms.filter(a => a.element === "H");
+    if (Cs.length !== 6 || Hs.length !== 6) return false;
+    const adj = build_adjacency();
+    for (const c of Cs){ const neighbors = adj[c.id].map(p => p[0]); if (neighbors.filter(nb => nb.element === "C").length !== 2 || neighbors.filter(nb => nb.element === "H").length !== 1) return false; }
+    const visited = new Set();
+    function dfs_c(cur){ if (visited.has(cur.id)) return; visited.add(cur.id); for (const [nb, _] of adj[cur.id]) if (nb.element === "C" && !visited.has(nb.id)) dfs_c(nb); }
+    dfs_c(Cs[0]);
+    return visited.size === 6;
+  }
+
+  function check_molecule_validity(){
+    const lvl = current_level();
+    if (!atoms.length) return [false, "no_atoms", "Сначала размести атомы."];
+    for (const a of atoms){ const [status, required, _] = get_atom_status(a, lvl); if (status !== "ok"){ return [false, "valence_error", String(HINTS.valence_error).replace("{element}", a.element).replace("{required}", String(required))]; }}
+    if (!lvl.validation_only){
+      const target = lvl.target_comp;
+      if (target){ const comp = {}; for (const a of atoms) comp[a.element] = (comp[a.element] || 0) + 1;
+        const comp_ok = Object.keys(target).length === Object.keys(comp).length && Object.keys(target).every(k => comp[k] === target[k]);
+        if (!comp_ok){ return [false, "wrong_formula", String(HINTS.wrong_formula).replace("{current}", format_formula(comp) || "(пусто)")]; }}}
+    if (!graph_is_connected()) return [false, "missing_bonds", HINTS.missing_bonds];
+    if (lvl.aromatic && !is_benzene_like()) return [false, "wrong_structure", HINTS.wrong_structure];
+    return [true, null, null];
+  }
+
+  function set_feedback(msg, ftype = "info"){ last_feedback_msg = msg; last_feedback_type = ftype; if (ftype === "error") error_flash_until = nowSec() + 0.4; else if (ftype === "ok") success_flash_until = nowSec() + 0.4; }
+  function calculate_stars(){ let s = 3; if (attempts > 1) s -= 1; if (hint_used_this_level) s -= 1; if (s < 1) s = 1; return s; }
+  function total_stars(){ return stars_per_level.reduce((a, b) => a + b, 0); }
+
+  function reset_level(){
+    const lvl = current_level();
+    atoms = []; bonds = []; available_atoms = { ...lvl.available_atoms }; palette_remaining = { ...available_atoms };
+    palette_elements_order = ELEMENT_ORDER.filter(e => (available_atoms[e] || 0) > 0);
+    selected_atom = null; drag_mode = null; drag_atom = null; drag_element = null;
+    attempts = 0; moves_used = 0; hint_used_this_level = false; show_hint = false;
+    set_feedback("Построй молекулу и нажми ПРОБЕЛ.", "info");
+    state = "play";
+  }
+
+  function palette_hit(pos){
+    const [px, py] = pos;
+    if (px < 10 || px > PALETTE_W - 10) return null;
+    let y = TOP_H + 40;
+    for (const el of palette_elements_order){ if (py >= y && py < y + 62) return el; y += 62; }
+    return null;
+  }
+
+  function handle_atom_click_for_bond(clicked){
+    if (selected_atom === null){ selected_atom = clicked; return; }
+    if (selected_atom === clicked){ selected_atom = null; return; }
+    const already = bonds.find(b => (b.a === selected_atom && b.b === clicked) || (b.a === clicked && b.b === selected_atom));
+    if (already){ selected_atom = clicked; return; }
+    const lvl = current_level();
+    const v1 = get_valence(selected_atom.element, lvl), v2 = get_valence(clicked.element, lvl);
+    const c1 = count_bonds_for(selected_atom), c2 = count_bonds_for(clicked);
+    if (c1 < v1 && c2 < v2){ bonds.push(new Bond(selected_atom, clicked, 1)); moves_used += 1; spawn_particles(...bond_midpoint(bonds[bonds.length - 1]), COLORS.particleBlue); }
+    selected_atom = null;
+  }
+
+  // ========================== ОТРИСОВКА ==========================
+  function draw_background(){
+    const grad = ctx.createLinearGradient(0, 0, WIDTH, HEIGHT);
+    grad.addColorStop(0, COLORS.bgGradientTop); grad.addColorStop(0.5, COLORS.bgGradientMiddle); grad.addColorStop(1, COLORS.bgGradientBottom);
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    ctx.globalAlpha = 0.03;
+    for (let i = 0; i < 8; i++){ const x = 100 + (i * 130) % WIDTH, y = 80 + (i * 97) % HEIGHT, r = 20 + (i * 7) % 15; filledCircle(x, y, r, '#2196F3'); }
+    ctx.globalAlpha = 1;
+  }
+
+  function draw_top_panel(){
+    const panelGrad = ctx.createLinearGradient(0, 0, 0, TOP_H);
+    panelGrad.addColorStop(0, 'rgba(255,255,255,0.98)'); panelGrad.addColorStop(1, 'rgba(240,248,255,0.95)');
+    ctx.fillStyle = panelGrad; ctx.fillRect(0, 0, WIDTH, TOP_H);
+    const shadowGrad = ctx.createLinearGradient(0, TOP_H, 0, TOP_H + 8);
+    shadowGrad.addColorStop(0, 'rgba(0,0,0,0.08)'); shadowGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = shadowGrad; ctx.fillRect(0, TOP_H, WIDTH, 8);
+
+    const lvl = current_level();
+    drawText(`Уровень ${level_index + 1}/${LEVELS.length}`, 16, 12, { color: COLORS.textSecondary, fontsize: 13, weight: 600 });
+    drawText(lvl.name, 16, 30, { color: COLORS.textPrimary, fontsize: 20, weight: 700 });
+
+    const tlabel = LEVEL_TYPE_LABEL[lvl.type] || lvl.type;
+    const typeColors = { tutorial: '#4CAF50', basic: '#2196F3', organic: '#9C27B0', advanced: '#FF9800', complex: '#F44336' };
+    roundedRect(130, 6, tlabel.length * 9 + 16, 22, 11, typeColors[lvl.type] || '#607D8B', null);
+    drawText(tlabel, 138, 11, { color: '#FFFFFF', fontsize: 12, weight: 700 });
+
+    drawText("Цель:", WIDTH / 2 - 60, 15, { color: COLORS.textSecondary, fontsize: 13 });
+    drawChem(lvl.target_formula || "?", WIDTH / 2, 15, { color: COLORS.textAccent, fontsize: 22, weight: 800 });
+    drawText(`Ходы: ${moves_used}  |  Попытки: ${attempts}/${ATTEMPT_LIMIT}`, WIDTH / 2 + 80, 25, { color: COLORS.textSecondary, fontsize: 13 });
+
+    for (let i = 0; i < 3; i++) drawStar(WIDTH - 90 + i * 28, 35, 12, i < stars_per_level[level_index]);
+    drawText("H подсказка | T теория | R сброс", WIDTH - 16, 55, { align: 'right', color: COLORS.textSecondary, fontsize: 11 });
+  }
+
+  function draw_left_panel(){
+    const panelGrad = ctx.createLinearGradient(0, TOP_H, PALETTE_W, TOP_H);
+    panelGrad.addColorStop(0, 'rgba(250,252,255,0.98)'); panelGrad.addColorStop(1, 'rgba(240,248,255,0.95)');
+    ctx.fillStyle = panelGrad; ctx.fillRect(0, TOP_H, PALETTE_W, FIELD_H);
+    const shadowGrad = ctx.createLinearGradient(PALETTE_W, TOP_H, PALETTE_W + 8, TOP_H);
+    shadowGrad.addColorStop(0, 'rgba(0,0,0,0.06)'); shadowGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = shadowGrad; ctx.fillRect(PALETTE_W, TOP_H, 8, FIELD_H);
+
+    drawText("Элементы", 16, TOP_H + 12, { color: COLORS.textPrimary, fontsize: 15, weight: 700 });
+
+    let y = TOP_H + 40;
+    for (const el of palette_elements_order){
+      const count = palette_remaining[el] || 0, cfg = ELEMENTS[el], style = ATOM_STYLES[el];
+      const rx = 10, ry = y, rw = PALETTE_W - 20, rh = 56;
+      const isAvailable = count > 0;
+      const cardGrad = ctx.createLinearGradient(rx, ry, rx, ry + rh);
+      cardGrad.addColorStop(0, isAvailable ? '#FFFFFF' : '#F5F5F5'); cardGrad.addColorStop(1, isAvailable ? '#FAFAFA' : '#EEEEEE');
+      roundedRect(rx, ry, rw, rh, 10, cardGrad, isAvailable ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.05)');
+      if (!isAvailable) ctx.globalAlpha = 0.5;
+      drawIconAtom(rx + 28, ry + rh / 2, cfg.radius * 2, el);
+      const val = get_valence(el, current_level());
+      drawText(style?.name || el, rx + 55, ry + 10, { color: COLORS.textPrimary, fontsize: 13, weight: 600 });
+      drawText(`Валентность: ${val}`, rx + 55, ry + 26, { color: COLORS.textSecondary, fontsize: 11 });
+      roundedRect(rx + rw - 28, ry + 4, 22, 18, 9, count > 0 ? COLORS.textSuccess : COLORS.textError, null);
+      drawText(String(count), rx + rw - 17, ry + 13, { align: 'center', baseline: 'middle', color: '#FFFFFF', fontsize: 11, weight: 700 });
+      ctx.globalAlpha = 1;
+      y += rh + 6;
+    }
+  }
+
+  function draw_atom_on_field(a, lvl){
+    const cfg = ELEMENTS[a.element], style = ATOM_STYLES[a.element], [x, y] = a.screen_pos(), radius = cfg.radius;
+    const [status, val, cnt] = get_atom_status(a, lvl), t = nowSec(), puls = 1 + 0.06 * Math.sin(t * 5);
+    let statusColor = status === "ok" ? COLORS.statusOk : status === "under" ? COLORS.statusUnder : COLORS.statusError;
+    const haloR = Math.floor((radius + 10) * puls);
+    ctx.globalAlpha = 0.6; filledCircle(x, y, haloR, statusColor); ctx.globalAlpha = 1;
+    if (selected_atom === a){ ctx.strokeStyle = COLORS.textAccent; ctx.lineWidth = 3; ctx.setLineDash([5, 3]); ctx.beginPath(); ctx.arc(x, y, haloR + 4, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1; }
+    const grad = ctx.createRadialGradient(x - radius * 0.3, y - radius * 0.3, 0, x, y, radius);
+    grad.addColorStop(0, style.colors[0]); grad.addColorStop(0.6, style.colors[1]); grad.addColorStop(1, style.colors[2]);
+    ctx.shadowColor = 'rgba(0,0,0,0.3)'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 3;
+    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+    ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 2; ctx.stroke(); ctx.lineWidth = 1;
+    ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.beginPath(); ctx.ellipse(x - radius * 0.25, y - radius * 0.3, radius * 0.4, radius * 0.2, -45 * Math.PI / 180, 0, Math.PI * 2); ctx.fill();
+    const textColor = (a.element === 'C') ? '#FFFFFF' : (a.element === 'S' ? '#333' : '#FFFFFF');
+    drawText(a.element, x, y, { align: 'center', baseline: 'middle', color: textColor, fontsize: radius * 0.9, weight: 800 });
+    drawText(`${cnt}/${val}`, x, y + radius + 12, { align: 'center', baseline: 'middle', color: statusColor, fontsize: 11, weight: 700 });
+  }
+
+  function draw_bond_on_field(b, highlight = false){
+    const [x1, y1] = b.a.screen_pos(), [x2, y2] = b.b.screen_pos();
+    const dx = x2 - x1, dy = y2 - y1, length = Math.hypot(dx, dy);
+    if (length === 0) return;
+    const nx = -dy / length, ny = dx / length;
+    const colors = [COLORS.bondSingle, COLORS.bondDouble, COLORS.bondTriple];
+    const base_col = highlight ? COLORS.bondHover : colors[Math.min(b.order - 1, 2)];
+    let offsets = b.order === 1 ? [0] : b.order === 2 ? [-4, 4] : [-6, 0, 6];
+    ctx.save(); ctx.strokeStyle = base_col; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    ctx.shadowColor = 'rgba(0,0,0,0.2)'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 2;
+    for (const off of offsets){ ctx.beginPath(); ctx.moveTo(x1 + nx * off, y1 + ny * off); ctx.lineTo(x2 + nx * off, y2 + ny * off); ctx.stroke(); }
+    ctx.restore();
+  }
+
+  function draw_field(){
+    roundedRect(FIELD_X + 4, FIELD_Y + 4, FIELD_W - 8, FIELD_H - 8, 12, COLORS.gridBg, 'rgba(0,0,0,0.05)');
+    ctx.save(); ctx.strokeStyle = COLORS.gridLines; ctx.lineWidth = 1;
+    for (let i = 0; i <= GRID_COLS; i++){ const x = GRID_ORIGIN_X + i * CELL; ctx.beginPath(); ctx.moveTo(x, GRID_ORIGIN_Y); ctx.lineTo(x, GRID_ORIGIN_Y + GRID_H); ctx.stroke(); }
+    for (let j = 0; j <= GRID_ROWS; j++){ const y = GRID_ORIGIN_Y + j * CELL; ctx.beginPath(); ctx.moveTo(GRID_ORIGIN_X, y); ctx.lineTo(GRID_ORIGIN_X + GRID_W, y); ctx.stroke(); }
+    ctx.restore();
+    const g = screen_to_grid(mouse_pos[0], mouse_pos[1]);
+    if (g){ const [gx, gy] = g; roundedRect(GRID_ORIGIN_X + gx * CELL + 2, GRID_ORIGIN_Y + gy * CELL + 2, CELL - 4, CELL - 4, 6, COLORS.gridHover, null); }
+    const hover_b = bond_at_pos(mouse_pos[0], mouse_pos[1]);
+    for (const b of bonds) draw_bond_on_field(b, b === hover_b);
+    const lvl = current_level();
+    for (const a of atoms) draw_atom_on_field(a, lvl);
+    if (drag_mode === "palette" && drag_element){ const cfg = ELEMENTS[drag_element]; ctx.globalAlpha = 0.8; drawIconAtom(drag_pos[0], drag_pos[1], cfg.radius * 2, drag_element); ctx.globalAlpha = 1; }
+  }
+
+  function draw_bottom_panel(){
+    const panelGrad = ctx.createLinearGradient(0, FIELD_BOTTOM, 0, HEIGHT);
+    panelGrad.addColorStop(0, 'rgba(245,250,255,0.98)'); panelGrad.addColorStop(1, 'rgba(255,255,255,0.98)');
+    ctx.fillStyle = panelGrad; ctx.fillRect(0, FIELD_BOTTOM, WIDTH, BOTTOM_H);
+    const shadowGrad = ctx.createLinearGradient(0, FIELD_BOTTOM - 8, 0, FIELD_BOTTOM);
+    shadowGrad.addColorStop(0, 'rgba(0,0,0,0)'); shadowGrad.addColorStop(1, 'rgba(0,0,0,0.05)');
+    ctx.fillStyle = shadowGrad; ctx.fillRect(0, FIELD_BOTTOM - 8, WIDTH, 8);
+    drawText("Левая кнопка: поставить/соединить | Правая кнопка: удалить | Колесо: кратность", 16, FIELD_BOTTOM + 12, { color: COLORS.textSecondary, fontsize: 12 });
+    const cmap = { info: COLORS.textSecondary, ok: COLORS.textSuccess, error: COLORS.textError };
+    const iconY = FIELD_BOTTOM + 42;
+    if (last_feedback_type === "ok"){ filledCircle(24, iconY, 10, COLORS.textSuccess); drawText("✓", 24, iconY, { align: 'center', baseline: 'middle', color: '#FFF', fontsize: 14, weight: 800 }); }
+    else if (last_feedback_type === "error"){ filledCircle(24, iconY, 10, COLORS.textError); drawText("!", 24, iconY, { align: 'center', baseline: 'middle', color: '#FFF', fontsize: 14, weight: 800 }); }
+    drawChem(last_feedback_msg, 44, FIELD_BOTTOM + 35, { color: cmap[last_feedback_type] || COLORS.textSecondary, fontsize: 14, weight: 600 });
+    const btnX = WIDTH - 130, btnY = FIELD_BOTTOM + 15, btnW = 115, btnH = 40;
+    const btnGrad = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH);
+    btnGrad.addColorStop(0, '#4CAF50'); btnGrad.addColorStop(1, '#388E3C');
+    roundedRect(btnX, btnY, btnW, btnH, 10, btnGrad, '#2E7D32');
+    drawText("ПРОВЕРИТЬ", btnX + btnW / 2, btnY + btnH / 2 - 5, { align: 'center', baseline: 'middle', color: '#FFFFFF', fontsize: 13, weight: 700 });
+    drawText("ПРОБЕЛ", btnX + btnW / 2, btnY + btnH / 2 + 10, { align: 'center', baseline: 'middle', color: 'rgba(255,255,255,0.7)', fontsize: 9 });
+    if (show_hint){ const lvl = current_level(); roundedRect(16, FIELD_BOTTOM - 35, WIDTH - 32, 30, 8, 'rgba(33, 150, 243, 0.95)', null); drawText("💡 " + (lvl.hint || ""), WIDTH / 2, FIELD_BOTTOM - 20, { align: 'center', baseline: 'middle', color: '#FFFFFF', fontsize: 13, weight: 600 }); }
+  }
+
+  function draw_particles(dt){
+    const toKeep = [];
+    for (const p of particles){ p.life -= dt; if (p.life <= 0) continue; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 100 * dt; toKeep.push(p);
+      const a = Math.max(0, Math.min(1, p.life / p.maxLife)); ctx.save(); ctx.globalAlpha = 0.9 * a; filledCircle(p.x, p.y, p.size * a, `rgb(${p.color[0]},${p.color[1]},${p.color[2]})`); ctx.restore(); }
+    particles = toKeep;
+  }
+
+  // ========================== ОВЕРЛЕИ ==========================
+  function draw_intro_overlay(){
+    const box = { x: 80, y: 40, w: 840, h: 520 };
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 30;
+    roundedRect(box.x, box.y, box.w, box.h, 16, COLORS.panelLight, COLORS.panelLightBorder);
+    ctx.shadowBlur = 0;
+    drawText("Молекулярный конструктор", box.x + box.w / 2, box.y + 30, { align: "center", baseline: "middle", color: COLORS.textPrimary, fontsize: 28, weight: 800 });
+    ctx.save(); ctx.translate(box.x + box.w / 2, box.y + 75); ctx.rotate(Math.sin(animTime * 2) * 0.1); ctx.translate(-(box.x + box.w / 2), -(box.y + 75)); drawIconMolecule(box.x + box.w / 2, box.y + 75, 50); ctx.restore();
+    const contentY = box.y + 115, contentH = box.h - 165;
+    ctx.save(); ctx.beginPath(); ctx.rect(box.x + 20, contentY, box.w - 40, contentH); ctx.clip();
+    let y = contentY + 10 - INTRO_SCROLL * 30;
+    for (const section of INTRO_SECTIONS){
+      if (y > contentY - 100 && y < contentY + contentH + 30){
+        if (section.icon === "flask") drawIconFlask(box.x + 50, y + 10, 40);
+        else if (section.icon === "atom") drawIconAtom(box.x + 50, y + 25, 35, 'C');
+        else if (section.icon === "bond") drawIconBond(box.x + 30, y + 25, 40, 2);
+        else if (section.icon === "keys") drawKey(box.x + 30, y + 12, "Клик", 45);
+        drawText(section.title, box.x + 100, y, { color: COLORS.textPrimary, fontsize: 17, weight: 700 });
+        const lines = wrapText(section.text, 70); let ly = y + 24;
+        for (const line of lines){ drawText(line, box.x + 100, ly, { color: COLORS.textSecondary, fontsize: 13, weight: 400 }); ly += 18; }
+        if (section.icon === "keys"){
+          const keysRowY = ly + 8;
+          drawKey(box.x + 100, keysRowY, "H", 28); drawText("подсказка", box.x + 135, keysRowY + 7, { color: '#78909C', fontsize: 10 });
+          drawKey(box.x + 200, keysRowY, "T", 28); drawText("теория", box.x + 235, keysRowY + 7, { color: '#78909C', fontsize: 10 });
+          drawKey(box.x + 290, keysRowY, "R", 28); drawText("сброс", box.x + 325, keysRowY + 7, { color: '#78909C', fontsize: 10 });
+          drawKey(box.x + 380, keysRowY, "ПРОБЕЛ", 60); drawText("проверить", box.x + 447, keysRowY + 7, { color: '#78909C', fontsize: 10 });
+        }
+      }
+      y += (section.icon === "keys") ? 130 : 100;
+    }
+    ctx.restore();
+    drawText("Нажми ПРОБЕЛ чтобы начать", box.x + box.w / 2, box.y + box.h - 35, { align: 'center', baseline: 'middle', color: COLORS.textAccent, fontsize: 16, weight: 700 });
+    if (INTRO_SECTIONS.length > 3){ const scrollH = Math.max(30, contentH * 0.4), scrollY = contentY + (INTRO_SCROLL / 6) * (contentH - scrollH); roundedRect(box.x + box.w - 18, scrollY, 6, scrollH, 3, 'rgba(0,0,0,0.15)', null); }
+  }
+
+  function draw_theory_screen(){
+    fillRect(0, 0, WIDTH, HEIGHT, 'rgba(20, 30, 50, 0.97)');
+    const box = { x: 60, y: 30, w: 880, h: 540 };
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'; ctx.shadowBlur = 30;
+    roundedRect(box.x, box.y, box.w, box.h, 16, COLORS.panelLight, COLORS.panelLightBorder);
+    ctx.shadowBlur = 0;
+    drawText("Шпаргалка: валентность и связи", box.x + box.w / 2, box.y + 25, { align: "center", baseline: "middle", color: COLORS.textPrimary, fontsize: 24, weight: 800 });
+    const contentY = box.y + 55, contentH = box.h - 105;
+    ctx.save(); ctx.beginPath(); ctx.rect(box.x + 20, contentY, box.w - 40, contentH); ctx.clip();
+    let y = contentY + 10 - THEORY_SCROLL * 25;
+    for (const section of THEORY_SECTIONS){
+      if (y > contentY - 120 && y < contentY + contentH + 40){
+        if (section.icon === "atom"){ drawIconAtom(box.x + 40, y + 30, 24, 'C'); drawIconAtom(box.x + 70, y + 30, 24, 'O'); drawIconAtom(box.x + 100, y + 30, 24, 'H'); }
+        else if (section.icon === "bond"){ drawIconBond(box.x + 35, y + 15, 30, 1); drawIconBond(box.x + 35, y + 35, 30, 2); drawIconBond(box.x + 35, y + 55, 30, 3); }
+        else if (section.icon === "strategy") drawIconStrategy(box.x + 55, y + 35, 40);
+        else if (section.icon === "colors") drawIconColors(box.x + 55, y + 35, 50);
+        drawText(section.title, box.x + 130, y, { color: COLORS.textPrimary, fontsize: 17, weight: 700 });
+        const paragraphs = section.text.split('\n'); let ly = y + 24;
+        for (const para of paragraphs){ const lines = wrapText(para, 68); for (const line of lines){ drawText(line, box.x + 130, ly, { color: COLORS.textSecondary, fontsize: 13, weight: 400 }); ly += 17; }}
+      }
+      y += 130;
+    }
+    ctx.restore();
+    drawText("T или Esc — закрыть", box.x + box.w / 2, box.y + box.h - 25, { align: 'center', baseline: 'middle', color: COLORS.textSecondary, fontsize: 13 });
+    const scrollH = Math.max(30, contentH * 0.35), scrollY = contentY + (THEORY_SCROLL / 15) * (contentH - scrollH);
+    roundedRect(box.x + box.w - 18, scrollY, 6, scrollH, 3, 'rgba(0,0,0,0.15)', null);
+  }
+
+  function draw_win_overlay(){
+    const box = { x: 200, y: 200, w: 600, h: 160 };
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'; ctx.shadowBlur = 30;
+    roundedRect(box.x, box.y, box.w, box.h, 16, COLORS.successBg, COLORS.successBorder);
+    ctx.shadowBlur = 0;
+    drawIconMolecule(box.x + 60, box.y + 60, 40);
+    drawText("МОЛЕКУЛА СОБРАНА!", box.x + box.w / 2 + 20, box.y + 35, { align: "center", baseline: "middle", color: COLORS.textWhite, fontsize: 28, weight: 800 });
+    const cx = box.x + box.w / 2 + 20, got = stars_per_level[level_index];
+    for (let i = 0; i < 3; i++) drawStar(cx - 50 + i * 50, box.y + 85, 20, i < got);
+    drawText("ПРОБЕЛ — дальше   R — повторить", box.x + box.w / 2, box.y + box.h - 20, { align: "center", baseline: "middle", color: 'rgba(255,255,255,0.8)', fontsize: 14 });
+  }
+
+  function draw_fail_overlay(){
+    const box = { x: 200, y: 220, w: 600, h: 120 };
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'; ctx.shadowBlur = 20;
+    roundedRect(box.x, box.y, box.w, box.h, 16, COLORS.failBg, COLORS.failBorder);
+    ctx.shadowBlur = 0;
+    drawText("Попытки закончились!", box.x + box.w / 2, box.y + 35, { align: "center", baseline: "middle", color: COLORS.textWhite, fontsize: 24, weight: 700 });
+    drawText("ПРОБЕЛ — следующий   R — снова", box.x + box.w / 2, box.y + 75, { align: "center", baseline: "middle", color: 'rgba(255,255,255,0.8)', fontsize: 14 });
+  }
+
+  function draw_final_overlay(){
+    fillRect(0, 0, WIDTH, HEIGHT, 'rgba(20, 30, 50, 0.97)');
+    const total = total_stars(), box = { x: 150, y: 80, w: 700, h: 440 };
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'; ctx.shadowBlur = 40;
+    roundedRect(box.x, box.y, box.w, box.h, 20, 'rgba(30, 100, 180, 0.95)', COLORS.textAccent);
+    ctx.shadowBlur = 0;
+    drawText("ИГРА ЗАВЕРШЕНА!", box.x + box.w / 2, box.y + 40, { align: "center", baseline: "middle", color: COLORS.textWhite, fontsize: 32, weight: 800 });
+    drawIconMolecule(box.x + box.w / 2, box.y + 100, 60);
+    drawText(`Результат: ${total} из ${LEVELS.length * 3}`, box.x + box.w / 2, box.y + 160, { align: "center", baseline: "middle", color: COLORS.textGold, fontsize: 24, weight: 700 });
+    const cols = 6, rows = 2, cellW = Math.floor((box.w - 40) / cols), startY = box.y + 200;
+    let idx = 0;
+    for (let r = 0; r < rows; r++){ for (let c = 0; c < cols; c++){ if (idx >= LEVELS.length) break; const cx = box.x + 20 + c * cellW + cellW / 2, cy = startY + r * 60;
+      drawText(String(idx + 1), cx, cy - 12, { align: "center", baseline: "middle", color: 'rgba(255,255,255,0.7)', fontsize: 14, weight: 600 });
+      const got = stars_per_level[idx]; for (let s = 0; s < 3; s++) drawStar(cx - 24 + s * 24, cy + 12, 10, s < got); idx++; }}
+    let comment = total >= LEVELS.length * 2.5 ? "Отлично! Ты настоящий химик!" : total >= LEVELS.length * 1.7 ? "Хорошая работа!" : "Неплохо! Повтори теорию (T)!";
+    drawText(comment, box.x + box.w / 2, box.y + box.h - 70, { align: "center", baseline: "middle", color: COLORS.textWhite, fontsize: 16 });
+    drawText("R — заново   T — теория", box.x + box.w / 2, box.y + box.h - 30, { align: "center", baseline: "middle", color: 'rgba(255,255,255,0.6)', fontsize: 14 });
+  }
+
+  // ========================== ГЛАВНЫЙ ЦИКЛ ==========================
+  function draw(){
+    draw_background(); draw_top_panel(); draw_left_panel(); draw_field(); draw_bottom_panel();
+    const t = nowSec();
+    if (t < success_flash_until){ const alpha = (success_flash_until - t) / 0.4; ctx.save(); ctx.globalAlpha = 0.25 * alpha; filledCircle(WIDTH / 2, HEIGHT / 2, 400, COLORS.textSuccess); ctx.restore(); }
+    if (t < error_flash_until){ const alpha = (error_flash_until - t) / 0.4; ctx.save(); ctx.globalAlpha = 0.25 * alpha; filledCircle(WIDTH / 2, HEIGHT / 2, 400, COLORS.textError); ctx.restore(); }
+    if (state === "intro") draw_intro_overlay();
+    else if (state === "theory") draw_theory_screen();
+    else if (state === "win") draw_win_overlay();
+    else if (state === "fail") draw_fail_overlay();
+    else if (state === "final") draw_final_overlay();
+  }
+
+  let lastTs = null;
+  function loop(ts){
+    if (lastTs === null) lastTs = ts;
+    let dt = clamp((ts - lastTs) / 1000, 0, 0.05); lastTs = ts; animTime += dt;
+    resizeCanvasToCSS(); draw(); draw_particles(dt);
+    requestAnimationFrame(loop);
+  }
+
+  // ========================== СОБЫТИЯ ==========================
+  canvas.addEventListener("contextmenu", e => e.preventDefault());
+  canvas.addEventListener("mousemove", e => { mouse_pos = getMousePos(e); if (drag_mode) drag_pos = mouse_pos; if (mouse_down_button !== null){ const d = Math.hypot(mouse_pos[0] - mouse_down_pos[0], mouse_pos[1] - mouse_down_pos[1]); if (d > 5) mouse_drag_moved = true; }});
+
+  canvas.addEventListener("mousedown", e => {
+    const pos = getMousePos(e); mouse_pos = pos; mouse_down_button = e.button; mouse_down_pos = pos; mouse_drag_moved = false;
+    if (e.button === 2 && state === "play"){
+      const a = atom_at_pos(pos[0], pos[1]);
+      if (a){ atoms = atoms.filter(x => x !== a); bonds = bonds.filter(b => b.a !== a && b.b !== a); palette_remaining[a.element] = (palette_remaining[a.element] || 0) + 1; if (selected_atom === a) selected_atom = null; moves_used += 1; spawn_particles(...a.screen_pos(), COLORS.particleRed); return; }
+      const b = bond_at_pos(pos[0], pos[1]); if (b){ bonds = bonds.filter(x => x !== b); moves_used += 1; spawn_particles(...bond_midpoint(b), COLORS.particleRed); }
+      return;
+    }
+    if (e.button === 0 && state === "play"){
+      const el = palette_hit(pos); if (el && (palette_remaining[el] || 0) > 0){ drag_mode = "palette"; drag_element = el; drag_atom = null; drag_pos = pos; return; }
+      const a = atom_at_pos(pos[0], pos[1]); if (a){ drag_mode = "field_atom"; drag_atom = a; drag_pos = pos; return; }
+      selected_atom = null; return;
+    }
+  });
+
+  window.addEventListener("mouseup", e => {
+    if (e.button !== 0) return; const pos = mouse_pos;
+    if (state !== "play"){ drag_mode = null; drag_atom = null; drag_element = null; return; }
+    if (drag_mode === "field_atom" && drag_atom && !mouse_drag_moved){ handle_atom_click_for_bond(drag_atom); drag_mode = null; drag_atom = null; drag_element = null; return; }
+    if (drag_mode === "field_atom" && drag_atom && mouse_drag_moved){ const g = screen_to_grid(pos[0], pos[1]); if (g){ const [gx, gy] = g; if (atom_at_grid(gx, gy) === null){ drag_atom.gx = gx; drag_atom.gy = gy; moves_used += 1; }} drag_mode = null; drag_atom = null; drag_element = null; return; }
+    if (drag_mode === "palette" && drag_element){ const g = screen_to_grid(pos[0], pos[1]); if (g){ const [gx, gy] = g; if (atom_at_grid(gx, gy) === null){ const a = new Atom(drag_element, gx, gy); atoms.push(a); palette_remaining[drag_element] = (palette_remaining[drag_element] || 0) - 1; moves_used += 1; spawn_particles(...a.screen_pos(), COLORS.particleGreen); }} drag_mode = null; drag_atom = null; drag_element = null; return; }
+    drag_mode = null; drag_atom = null; drag_element = null;
+  });
+
+  canvas.addEventListener("wheel", e => {
+    const pos = getMousePos(e); mouse_pos = pos;
+    if (state === "intro"){ e.preventDefault(); INTRO_SCROLL = clamp(INTRO_SCROLL + (e.deltaY > 0 ? 1 : -1), 0, 6); return; }
+    if (state === "theory"){ e.preventDefault(); THEORY_SCROLL = clamp(THEORY_SCROLL + (e.deltaY > 0 ? 2 : -2), 0, 15); return; }
+    if (!(state === "play" || state === "win")) return;
+    e.preventDefault();
+    const b = bond_at_pos(pos[0], pos[1]);
+    if (b){ const lvl = current_level(), new_order = (b.order % 3) + 1, delta = new_order - b.order;
+      if (delta !== 0){ const v1 = get_valence(b.a.element, lvl), v2 = get_valence(b.b.element, lvl), c1 = count_bonds_for(b.a), c2 = count_bonds_for(b.b);
+        if (c1 + delta <= v1 && c2 + delta <= v2){ b.order = new_order; spawn_particles(...bond_midpoint(b), COLORS.particleBlue); moves_used += 1; }
+        else { set_feedback("Нельзя увеличить кратность.", "error"); }}}
+  }, { passive: false });
+
+  document.addEventListener("keydown", e => {
+    const code = e.code;
+    if (["ArrowUp", "ArrowDown", "Space", "PageUp", "PageDown"].includes(code)) e.preventDefault();
+    if (code === "KeyT"){ if (state === "theory"){ state = PREV_STATE || "play"; PREV_STATE = null; return; } if (["play", "win", "final", "intro"].includes(state)){ PREV_STATE = state; THEORY_SCROLL = 0; state = "theory"; return; }}
+    if (state === "theory"){ if (code === "ArrowDown") THEORY_SCROLL = clamp(THEORY_SCROLL + 2, 0, 15); else if (code === "ArrowUp") THEORY_SCROLL = clamp(THEORY_SCROLL - 2, 0, 15); else if (code === "Escape" || code === "Backspace"){ state = PREV_STATE || "play"; PREV_STATE = null; } return; }
+    if (state === "intro"){ if (code === "ArrowDown") INTRO_SCROLL = clamp(INTRO_SCROLL + 1, 0, 6); else if (code === "ArrowUp") INTRO_SCROLL = clamp(INTRO_SCROLL - 1, 0, 6); else if (code === "Space") reset_level(); return; }
+    if (code === "KeyH" && (state === "play" || state === "win")){ show_hint = !show_hint; if (show_hint && !hint_used_this_level){ hint_used_this_level = true; moves_used += 1; } return; }
+    if (code === "KeyR"){ if (state === "play" || state === "win" || state === "fail"){ reset_level(); return; } if (state === "final"){ stars_per_level.fill(0); level_index = 0; reset_level(); state = "intro"; return; }}
+    if (state === "play" && code === "Space"){ attempts += 1; const [valid, _, msg] = check_molecule_validity(); if (valid){ set_feedback(`Молекула ${current_level().target_formula} собрана!`, "ok"); stars_per_level[level_index] = Math.max(stars_per_level[level_index], calculate_stars()); state = "win"; } else { set_feedback(msg || "Что-то не так.", "error"); if (attempts >= ATTEMPT_LIMIT) state = "fail"; } return; }
+    if ((state === "win" || state === "fail") && (code === "Space" || code === "KeyN")){ if (level_index < LEVELS.length - 1){ level_index += 1; reset_level(); } else { state = "final"; } return; }
+    if (state === "play" && code === "Escape"){ state = "intro"; return; }
+  }, { passive: false });
+
+  reset_level(); state = "intro";
+  requestAnimationFrame(loop);
+
+  window.GameInstance = {
+    exportState(){ return { v: 1, level_index, stars_per_level: Array.isArray(stars_per_level) ? stars_per_level.slice() : [] }; },
+    importState(s){
+      if (!s || typeof s !== "object") return;
+      if (Number.isInteger(s.level_index)) level_index = Math.max(0, Math.min(LEVELS.length-1, s.level_index));
+      if (Array.isArray(s.stars_per_level)) {
+        stars_per_level = s.stars_per_level.map(x => Math.max(0, Math.min(3, Number(x)||0)));
+        while (stars_per_level.length < LEVELS.length) stars_per_level.push(0);
+        stars_per_level = stars_per_level.slice(0, LEVELS.length);
+      }
+      reset_level();
+      state = "play";
+    },
+    getSessionSummary(){
+      const by = Array.isArray(stars_per_level) ? stars_per_level.slice() : [];
+      return {
+        stars_total: (typeof total_stars === "function") ? total_stars() : by.reduce((a,b)=>a+(+b||0),0),
+        stars_by_level: by,
+        level_reached: (Number.isInteger(level_index) ? level_index+1 : null),
+      };
+    }
+  };
+})();
+</script>
+<script src="/platform/client.js"></script>
+<script src="/platform/bridge.js"></script>
+</body>
+</html>

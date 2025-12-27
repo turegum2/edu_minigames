@@ -1,0 +1,1926 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Парабола: попади в цель</title>
+  <link rel="stylesheet" href="/assets/fonts/nunito/wght.css">
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body{
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      display: grid;
+      place-items: center;
+      padding: 14px;
+      box-sizing: border-box;
+      font-family: "Nunito Variable", sans-serif;
+    }
+    canvas{
+      width: min(1000px, calc(100vw - 28px));
+      aspect-ratio: 1000 / 600;
+      border-radius: 20px;
+      box-shadow: 
+        0 20px 60px rgba(0,0,0,0.5),
+        0 0 40px rgba(79, 172, 254, 0.2),
+        inset 0 0 80px rgba(255,255,255,0.05);
+      outline: 2px solid rgba(255,255,255,0.1);
+      display: block;
+      touch-action: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game" width="1000" height="600" aria-label="Парабола: попади в цель"></canvas>
+
+  <script>
+  (() => {
+    "use strict";
+    window.__GAME_ID__ = "parabola";
+    // ---------------------------- КОНСТАНТЫ ----------------------------
+    const TITLE = "Парабола: попади в цель";
+    const WIDTH = 1000, HEIGHT = 600;
+
+    const UI_FS = 18;
+    const UI_LINE = 24;
+    const PROMPT_FS = 26;
+    const FINAL_TITLE_FS = 32;
+    const FINAL_TEXT_FS = 20;
+
+    const GROUND_Y = HEIGHT - 80;
+    const G = 520.0;
+
+    const ATTEMPT_LIMIT = 5;
+
+    // ---------------------------- ЦВЕТОВАЯ ПАЛИТРА ----------------------------
+    const COLORS = {
+      skyTop: '#87CEEB',
+      skyMiddle: '#B4E1F7',
+      skyBottom: '#FFE4B5',
+      
+      grassTop: '#7CB342',
+      grassBottom: '#558B2F',
+      groundTop: '#8D6E63',
+      groundBottom: '#5D4037',
+      
+      panelBg: 'rgba(15, 25, 45, 0.92)',
+      panelBorder: 'rgba(79, 172, 254, 0.4)',
+      panelGlow: 'rgba(79, 172, 254, 0.15)',
+      
+      textPrimary: '#FFFFFF',
+      textSecondary: '#B0BEC5',
+      textAccent: '#4FC3F7',
+      textGold: '#FFD54F',
+      textGreen: '#81C784',
+      textOrange: '#FFB74D',
+      textPink: '#F48FB1',
+      
+      cannonBody: '#37474F',
+      cannonAccent: '#546E7A',
+      cannonHighlight: '#78909C',
+      
+      ball: '#4CAF50',
+      ballGlow: 'rgba(76, 175, 80, 0.5)',
+      ballTrail: '#81C784',
+      
+      target: '#E53935',
+      targetRing1: '#FF5252',
+      targetRing2: '#FFCDD2',
+      targetCenter: '#FFFFFF',
+      
+      obstacle: '#455A64',
+      obstacleTop: '#607D8B',
+      obstacleBrick: '#546E7A',
+      
+      preview: 'rgba(255, 255, 255, 0.4)',
+      
+      starGold: '#FFD700',
+      starGoldDark: '#FFA000',
+      starEmpty: '#546E7A',
+      
+      successBg: 'rgba(46, 125, 50, 0.95)',
+      successBorder: '#81C784',
+      failBg: 'rgba(198, 40, 40, 0.95)',
+      failBorder: '#EF5350',
+      infoBg: 'rgba(25, 118, 210, 0.95)',
+      infoBorder: '#64B5F6',
+    };
+
+    // ---------------------------- СОСТОЯНИЕ ИГРЫ ----------------------------
+    let state = "intro";
+    let level_index = 0;
+    let attempts = 0;
+    let stars_last = 0;
+
+    const stars_per_level = Array(6).fill(0);
+
+    let angle_deg = 45;
+    let power_level = 9;
+
+    let THEORY_SCROLL = 0;
+    let THEORY_PREV_STATE = "aim";
+    let INTRO_SCROLL = 0;
+
+    const ball = {
+      alive: false,
+      x: 120.0,
+      y: GROUND_Y * 1.0,
+      vx: 0.0,
+      vy: 0.0,
+      trail: []
+    };
+
+    let animTime = 0;
+
+    const LEVELS = [
+      {name:"Первый выстрел",  target:[820, GROUND_Y-18, 22],  obstacles:[], wind_ax:0.0},
+      {name:"Стена на пути",   target:[760, GROUND_Y-18, 22],  obstacles:[[450, GROUND_Y-190, 24, 190]], wind_ax:0.0},
+      {name:"Попутный ветер",  target:[780, GROUND_Y-18, 22],  obstacles:[], wind_ax:55.0},
+      {name:"Встречный ветер", target:[700, GROUND_Y-18, 22],  obstacles:[], wind_ax:-60.0},
+      {name:"Попади в окно",   target:[860, GROUND_Y-18, 22],  obstacles:[[420, GROUND_Y-210, 26, 210],[420, GROUND_Y-350, 26, 60]], wind_ax:0.0},
+      {name:"Финальный босс",  target:[820, GROUND_Y-120, 22], obstacles:[[520, GROUND_Y-240, 20, 240],[650, GROUND_Y-150, 20, 150]], wind_ax:40.0},
+    ];
+
+    // ---------------------------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------------------------
+    function current_level(){ return LEVELS[level_index]; }
+    function clamp(v, vmin, vmax){ return Math.max(vmin, Math.min(vmax, v)); }
+    function deg2rad(d){ return d * Math.PI / 180; }
+
+    function reset_ball(){
+      ball.alive = false;
+      ball.x = 120.0;
+      ball.y = GROUND_Y * 1.0;
+      ball.vx = 0.0;
+      ball.vy = 0.0;
+      ball.trail = [];
+    }
+
+    function power_level_to_px(level){
+      return 400 + (level - 1) * 15;
+    }
+
+    function start_shot(){
+      reset_ball();
+      const rad = deg2rad(angle_deg);
+      const p = power_level_to_px(power_level);
+      ball.vx = Math.cos(rad) * p;
+      ball.vy = -Math.sin(rad) * p;
+      ball.alive = true;
+      attempts += 1;
+      state = "flying";
+    }
+
+    function hit_target(){
+      const [tx, ty, tr] = current_level().target;
+      const dx = ball.x - tx;
+      const dy = ball.y - ty;
+      return (dx*dx + dy*dy) <= (tr*tr);
+    }
+
+    function ball_hits_obstacle(){
+      const bx = ball.x, by = ball.y, br = 10;
+      for (const [ox, oy, ow, oh] of current_level().obstacles){
+        const cx = clamp(bx, ox, ox+ow);
+        const cy = clamp(by, oy, oy+oh);
+        if ((bx-cx)*(bx-cx) + (by-cy)*(by-cy) <= br*br) return true;
+      }
+      return false;
+    }
+
+    function out_of_bounds(){
+      return (ball.x < -40 || ball.x > WIDTH+40 || ball.y > HEIGHT+20 || ball.y < -40);
+    }
+
+    function compute_preview_points(){
+      const lvl = current_level();
+      const ax = lvl.wind_ax;
+      const x0 = 120.0, y0 = GROUND_Y * 1.0;
+      const rad = deg2rad(angle_deg);
+      const p = power_level_to_px(power_level);
+      const vx0 = Math.cos(rad) * p;
+      const vy0 = -Math.sin(rad) * p;
+
+      let t = 0.0;
+      const dt = 0.035;
+      const flight_points = [];
+      while (t < 4.0){
+        const x = x0 + vx0*t + 0.5*ax*t*t;
+        const y = y0 + vy0*t + 0.5*G*t*t;
+        flight_points.push([x, y]);
+        if (y > GROUND_Y + 1) break;
+        t += dt;
+      }
+      if (flight_points.length <= 1) return [];
+      const quarter = Math.max(2, Math.floor(flight_points.length / 4));
+      return flight_points.slice(0, quarter);
+    }
+
+    function total_stars(){ return stars_per_level.reduce((a,b)=>a+b, 0); }
+
+    function grade_comment(total){
+      if (total >= 15) return "Отличный стрелок! Ты мастер баллистики!";
+      if (10 <= total && total <= 14) return "Хорошая работа! Ты понимаешь физику полёта!";
+      if (7 <= total && total <= 9) return "Неплохо! Продолжай тренироваться!";
+      return "Нужна практика. Почитай теорию (клавиша T)!";
+    }
+
+    function return_to_aim(){ reset_ball(); }
+
+    function handle_miss(){
+      return_to_aim();
+      if (attempts >= ATTEMPT_LIMIT){
+        stars_last = 0;
+        state = "fail";
+      } else {
+        state = "aim";
+      }
+    }
+
+    function update(dt){
+      animTime += dt;
+      
+      if (state !== "flying" || !ball.alive) return;
+
+      const lvl = current_level();
+      const ax = lvl.wind_ax;
+
+      ball.vx += ax * dt;
+      ball.vy += G * dt;
+      ball.x  += ball.vx * dt;
+      ball.y  += ball.vy * dt;
+
+      if (ball.trail.length === 0 ||
+          (Math.abs(ball.x - ball.trail[ball.trail.length-1][0]) > 6 ||
+           Math.abs(ball.y - ball.trail[ball.trail.length-1][1]) > 6)){
+        ball.trail.push([ball.x, ball.y]);
+        if (ball.trail.length > 300) ball.trail.shift();
+      }
+
+      if (hit_target()){
+        ball.alive = false;
+        stars_last = (attempts === 1) ? 3 : ((attempts <= 3) ? 2 : 1);
+        stars_per_level[level_index] = Math.max(stars_per_level[level_index], stars_last);
+        state = (level_index === LEVELS.length - 1) ? "final" : "win";
+        return;
+      }
+
+      if (ball_hits_obstacle()){ handle_miss(); return; }
+      if (ball.y >= GROUND_Y || out_of_bounds()){ handle_miss(); return; }
+    }
+
+    // ---------------------------- РЕНДЕР ----------------------------
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    document.title = TITLE;
+
+    function resizeCanvasToCSS() {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      const realW = Math.max(1, Math.round(rect.width * dpr));
+      const realH = Math.max(1, Math.round(rect.height * dpr));
+      if (canvas.width !== realW || canvas.height !== realH) {
+        canvas.width = realW;
+        canvas.height = realH;
+      }
+      ctx.setTransform(realW / WIDTH, 0, 0, realH / HEIGHT, 0, 0);
+      ctx.lineWidth = 1;
+    }
+
+    window.addEventListener("resize", resizeCanvasToCSS);
+    resizeCanvasToCSS();
+
+    function createSkyGradient(){
+      const grad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+      grad.addColorStop(0, COLORS.skyTop);
+      grad.addColorStop(0.6, COLORS.skyMiddle);
+      grad.addColorStop(1, COLORS.skyBottom);
+      return grad;
+    }
+
+    function createGroundGradient(){
+      const grad = ctx.createLinearGradient(0, GROUND_Y, 0, HEIGHT);
+      grad.addColorStop(0, COLORS.grassTop);
+      grad.addColorStop(0.15, COLORS.grassBottom);
+      grad.addColorStop(0.15, COLORS.groundTop);
+      grad.addColorStop(1, COLORS.groundBottom);
+      return grad;
+    }
+
+    function drawText(text, x, y, opts = {}){
+      const {
+        color = COLORS.textPrimary,
+        fontsize = 24,
+        align = "left",
+        baseline = "top",
+        owidth = 0,
+        ocolor = "rgba(0,0,0,0.5)",
+        weight = 600
+      } = opts;
+
+      ctx.font = `${weight} ${fontsize}px "Nunito Variable", "Nunito", sans-serif`;
+      ctx.textAlign = align;
+      ctx.textBaseline = baseline;
+
+      if (owidth > 0){
+        ctx.lineWidth = owidth * 2;
+        ctx.strokeStyle = ocolor;
+        ctx.strokeText(text, x, y);
+        ctx.lineWidth = 1;
+      }
+
+      ctx.fillStyle = color;
+      ctx.fillText(text, x, y);
+    }
+
+    function filledRect(x, y, w, h, color){
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, w, h);
+    }
+
+    function roundedRect(x, y, w, h, r, fill, stroke){
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, r);
+      if (fill) {
+        ctx.fillStyle = fill;
+        ctx.fill();
+      }
+      if (stroke) {
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
+    }
+
+    function line(x1, y1, x2, y2, color, width = 1){
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+
+    function filledCircle(x, y, r, color){
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function strokedCircle(x, y, r, color, width = 1){
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+
+    function drawStar(cx, cy, r, filled){
+      const points = [];
+      for (let i = 0; i < 10; i++){
+        const ang = deg2rad(-90 + i * 36);
+        const rr = (i % 2 === 0) ? r : r * 0.45;
+        points.push([cx + rr * Math.cos(ang), cy + rr * Math.sin(ang)]);
+      }
+      ctx.beginPath();
+      ctx.moveTo(points[0][0], points[0][1]);
+      for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+      ctx.closePath();
+      
+      if (filled) {
+        const grad = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+        grad.addColorStop(0, COLORS.starGold);
+        grad.addColorStop(1, COLORS.starGoldDark);
+        ctx.fillStyle = grad;
+        ctx.shadowColor = 'rgba(255, 215, 0, 0.5)';
+        ctx.shadowBlur = 8;
+      } else {
+        ctx.fillStyle = COLORS.starEmpty;
+        ctx.shadowBlur = 0;
+      }
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      
+      ctx.strokeStyle = filled ? '#B8860B' : '#37474F';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+
+    // ===================== ИКОНКИ И МИНИ-ГРАФИКА =====================
+    
+    // Иконка мишени
+    function drawIconTarget(x, y, size){
+      const r = size / 2;
+      ctx.fillStyle = '#FFCDD2';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#FF5252';
+      ctx.beginPath();
+      ctx.arc(x, y, r * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#E53935';
+      ctx.beginPath();
+      ctx.arc(x, y, r * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#FFF';
+      ctx.beginPath();
+      ctx.arc(x, y, r * 0.15, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    // Иконка пушки
+    function drawIconCannon(x, y, size, angle = 45){
+      const rad = deg2rad(angle);
+      ctx.fillStyle = '#546E7A';
+      ctx.beginPath();
+      ctx.arc(x, y + size*0.2, size * 0.35, 0, Math.PI, true);
+      ctx.fill();
+      
+      // Ствол
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(-rad);
+      ctx.fillStyle = '#78909C';
+      ctx.fillRect(-2, -3, size * 0.7, 6);
+      ctx.restore();
+      
+      // Колёса
+      ctx.fillStyle = '#37474F';
+      filledCircle(x - size*0.25, y + size*0.25, size*0.12, '#37474F');
+      filledCircle(x + size*0.25, y + size*0.25, size*0.12, '#37474F');
+    }
+    
+    // Иконка мяча
+    function drawIconBall(x, y, size){
+      const grad = ctx.createRadialGradient(x - size*0.15, y - size*0.15, 0, x, y, size/2);
+      grad.addColorStop(0, '#A5D6A7');
+      grad.addColorStop(0.7, '#4CAF50');
+      grad.addColorStop(1, '#2E7D32');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, size/2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    // Иконка клавиши
+    function drawKey(x, y, text, width = 40){
+      const h = 28;
+      const w = width;
+      
+      // Тень
+      roundedRect(x + 2, y + 2, w, h, 6, 'rgba(0,0,0,0.3)', null);
+      
+      // Клавиша
+      const grad = ctx.createLinearGradient(x, y, x, y + h);
+      grad.addColorStop(0, '#4A5568');
+      grad.addColorStop(1, '#2D3748');
+      roundedRect(x, y, w, h, 6, grad, '#718096');
+      
+      // Текст
+      drawText(text, x + w/2, y + h/2, {
+        align: 'center',
+        baseline: 'middle',
+        color: '#E2E8F0',
+        fontsize: text.length > 2 ? 11 : 14,
+        weight: 700
+      });
+    }
+    
+    // Мини-траектория параболы
+    function drawMiniParabola(x, y, w, h, angle, color, showDots = false){
+      const rad = deg2rad(angle);
+      const v = 100;
+      const vx = Math.cos(rad) * v;
+      const vy = -Math.sin(rad) * v;
+      const g = 200;
+      
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      
+      let started = false;
+      for (let t = 0; t < 1.5; t += 0.02){
+        const px = x + vx * t * (w / 100);
+        const py = y + (vy * t + 0.5 * g * t * t) * (h / 50);
+        if (py > y + h) break;
+        if (!started) {
+          ctx.moveTo(px, py);
+          started = true;
+        } else {
+          ctx.lineTo(px, py);
+        }
+      }
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      
+      // Точка старта
+      filledCircle(x, y, 4, color);
+    }
+    
+    // Иконка ветра
+    function drawIconWind(x, y, size, direction = 1){
+      const color = direction > 0 ? '#4FC3F7' : '#FF8A65';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      
+      // Линии ветра
+      for (let i = 0; i < 3; i++){
+        const offsetY = (i - 1) * size * 0.35;
+        const startX = x - direction * size * 0.4;
+        const endX = x + direction * size * 0.4;
+        
+        ctx.beginPath();
+        ctx.moveTo(startX, y + offsetY);
+        ctx.lineTo(endX, y + offsetY);
+        ctx.stroke();
+        
+        // Стрелка
+        ctx.beginPath();
+        ctx.moveTo(endX, y + offsetY);
+        ctx.lineTo(endX - direction * 8, y + offsetY - 5);
+        ctx.moveTo(endX, y + offsetY);
+        ctx.lineTo(endX - direction * 8, y + offsetY + 5);
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1;
+    }
+    
+    // Иконка стены
+    function drawIconWall(x, y, w, h){
+      ctx.fillStyle = '#607D8B';
+      ctx.fillRect(x, y, w, h);
+      
+      // Кирпичи
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+      ctx.lineWidth = 1;
+      for (let row = 0; row < h; row += 6){
+        ctx.beginPath();
+        ctx.moveTo(x, y + row);
+        ctx.lineTo(x + w, y + row);
+        ctx.stroke();
+      }
+      
+      // Верхушка
+      ctx.fillStyle = '#78909C';
+      ctx.fillRect(x - 1, y - 3, w + 2, 4);
+    }
+    
+    // Рисуем схему угла
+    function drawAngleDiagram(x, y, w, h){
+      const baseY = y + h - 10;
+      const startX = x + 10;
+      
+      // Клиппинг области диаграммы
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, w, h);
+      ctx.clip();
+      
+      // Земля
+      ctx.strokeStyle = '#558B2F';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, baseY);
+      ctx.lineTo(x + w, baseY);
+      ctx.stroke();
+      
+      // Пушка
+      drawIconCannon(startX + 5, baseY - 5, 20, 45);
+      
+      // Три траектории
+      drawMiniParabola(startX + 15, baseY - 8, w - 40, h - 20, 25, '#FF8A65'); // низкий
+      drawMiniParabola(startX + 15, baseY - 8, w - 40, h - 20, 45, '#4FC3F7'); // средний  
+      drawMiniParabola(startX + 15, baseY - 8, w - 40, h - 20, 70, '#CE93D8'); // высокий
+      
+      ctx.restore();
+      
+      // Подписи (вне clip, ближе к линиям)
+      drawText("25°", x + w - 40, baseY - 25, {color: '#FF8A65', fontsize: 11, weight: 700});
+      drawText("45°", x + w - 70, y + 30, {color: '#4FC3F7', fontsize: 11, weight: 700});
+      drawText("70°", x + 60, y + 8, {color: '#CE93D8', fontsize: 11, weight: 700});
+      
+      ctx.lineWidth = 1;
+    }
+    
+    // Схема влияния ветра
+    function drawWindDiagram(x, y, w, h){
+      const baseY = y + h - 10;
+      const startX = x + 20;
+      
+      // Клиппинг области диаграммы
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, w, h);
+      ctx.clip();
+      
+      // Земля
+      ctx.strokeStyle = '#558B2F';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, baseY);
+      ctx.lineTo(x + w, baseY);
+      ctx.stroke();
+      
+      // Без ветра (пунктир)
+      ctx.setLineDash([4, 4]);
+      drawMiniParabola(startX, baseY - 5, w - 40, h - 20, 45, 'rgba(255,255,255,0.4)');
+      ctx.setLineDash([]);
+      
+      // С попутным ветром (дальше)
+      const rad = deg2rad(45);
+      const v = 100;
+      const vx = Math.cos(rad) * v;
+      const vy = -Math.sin(rad) * v;
+      const g = 200;
+      const windBoost = 30; // ускорение от ветра
+      
+      ctx.strokeStyle = '#4FC3F7';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      let started = false;
+      for (let t = 0; t < 1.5; t += 0.02){
+        const px = startX + (vx * t + 0.5 * windBoost * t * t) * ((w - 40) / 100);
+        const py = baseY - 5 + (vy * t + 0.5 * g * t * t) * ((h - 20) / 50);
+        if (py > baseY) break;
+        if (!started) {
+          ctx.moveTo(px, py);
+          started = true;
+        } else {
+          ctx.lineTo(px, py);
+        }
+      }
+      ctx.stroke();
+      
+      ctx.restore();
+      
+      // Иконка ветра (вне clip)
+      drawIconWind(x + w/2, y + 15, 25, 1);
+      
+      ctx.lineWidth = 1;
+    }
+    
+    // Схема перебрасывания стены
+    function drawWallDiagram(x, y, w, h){
+      const baseY = y + h - 10;
+      const startX = x + 15;
+      
+      // Земля
+      ctx.strokeStyle = '#558B2F';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, baseY);
+      ctx.lineTo(x + w, baseY);
+      ctx.stroke();
+      
+      // Стена
+      const wallX = x + w * 0.45;
+      const wallH = h * 0.5;
+      drawIconWall(wallX, baseY - wallH, 8, wallH);
+      
+      // Мишень
+      drawIconTarget(x + w - 20, baseY - 8, 14);
+      
+      // Низкая траектория (врезается)
+      ctx.strokeStyle = '#FF8A65';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(startX, baseY - 5);
+      ctx.quadraticCurveTo(wallX - 10, baseY - wallH * 0.6, wallX, baseY - wallH * 0.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      
+      // Крестик
+      ctx.strokeStyle = '#F44336';
+      ctx.lineWidth = 2;
+      const crossX = wallX - 2;
+      const crossY = baseY - wallH * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(crossX - 5, crossY - 5);
+      ctx.lineTo(crossX + 5, crossY + 5);
+      ctx.moveTo(crossX + 5, crossY - 5);
+      ctx.lineTo(crossX - 5, crossY + 5);
+      ctx.stroke();
+      
+      // Высокая траектория (перелетает)
+      ctx.strokeStyle = '#4FC3F7';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(startX, baseY - 5);
+      ctx.bezierCurveTo(startX + 30, baseY - wallH - 30, wallX + 30, baseY - wallH - 20, x + w - 20, baseY - 8);
+      ctx.stroke();
+      
+      // Галочка
+      ctx.strokeStyle = '#4CAF50';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x + w - 30, baseY - 25);
+      ctx.lineTo(x + w - 25, baseY - 20);
+      ctx.lineTo(x + w - 15, baseY - 35);
+      ctx.stroke();
+      
+      ctx.lineWidth = 1;
+    }
+
+    // ===================== СТРУКТУРИРОВАННЫЕ ДАННЫЕ ДЛЯ ЭКРАНОВ =====================
+    
+    // Данные для intro экрана
+    function getIntroSections(){
+      return [
+        {
+          type: 'header',
+          icon: 'target',
+          title: 'ЦЕЛЬ ИГРЫ',
+          color: COLORS.textAccent
+        },
+        {
+          type: 'text',
+          lines: [
+            'Попади зелёным шариком в красную мишень!',
+            'Пройди 6 уровней и собери максимум звёзд.'
+          ]
+        },
+        {
+          type: 'mini-demo',
+          demo: 'target-ball'
+        },
+        {
+          type: 'spacer'
+        },
+        {
+          type: 'header',
+          icon: 'cannon',
+          title: 'ЧТО ПРОИСХОДИТ',
+          color: COLORS.textGreen
+        },
+        {
+          type: 'text',
+          lines: [
+            'Ты управляешь пушкой, которая стреляет шариком.',
+            'Шарик летит по дуге — параболе — и падает вниз.',
+            'Настрой угол и силу, чтобы попасть точно в цель!'
+          ]
+        },
+        {
+          type: 'spacer'
+        },
+        {
+          type: 'header',
+          icon: 'keys',
+          title: 'УПРАВЛЕНИЕ',
+          color: COLORS.textOrange
+        },
+        {
+          type: 'controls'
+        },
+        {
+          type: 'spacer'
+        },
+        {
+          type: 'header',
+          icon: 'trajectory',
+          title: 'ПОДСКАЗКИ НА ЭКРАНЕ',
+          color: COLORS.textPink
+        },
+        {
+          type: 'text',
+          lines: [
+            'Зелёная стрелка показывает направление выстрела.',
+            'Белый пунктир — начало траектории полёта.',
+            'Используй их для прицеливания!'
+          ]
+        },
+        {
+          type: 'spacer'
+        },
+        {
+          type: 'header',
+          icon: 'star',
+          title: 'СИСТЕМА ЗВЁЗД',
+          color: COLORS.textGold
+        },
+        {
+          type: 'stars-demo'
+        },
+        {
+          type: 'spacer'
+        },
+        {
+          type: 'ready'
+        }
+      ];
+    }
+    
+    // Данные для theory экрана
+    function getTheorySections(){
+      return [
+        {
+          type: 'header',
+          icon: 'ball',
+          title: 'КАК ЛЕТИТ СНАРЯД',
+          color: COLORS.textAccent
+        },
+        {
+          type: 'text',
+          lines: [
+            'Представь, что бросаешь мяч другу.',
+            'Мяч летит не по прямой, а по дуге — это парабола!',
+            'Снаряд движется вперёд и одновременно падает вниз',
+            'из-за притяжения Земли.'
+          ]
+        },
+        {
+          type: 'spacer'
+        },
+        {
+          type: 'header',
+          icon: 'angle',
+          title: 'ВЫБОР УГЛА',
+          color: COLORS.textGreen
+        },
+        {
+          type: 'diagram',
+          diagram: 'angles'
+        },
+        {
+          type: 'text',
+          lines: [
+            'Маленький угол (25°) — летит низко, падает быстро',
+            'Большой угол (70°) — взлетает высоко, падает близко',
+            'Угол 45° — самый дальний полёт!'
+          ]
+        },
+        {
+          type: 'spacer'
+        },
+        {
+          type: 'header',
+          icon: 'power',
+          title: 'СИЛА БРОСКА',
+          color: COLORS.textOrange
+        },
+        {
+          type: 'text',
+          lines: [
+            'Чем больше сила — тем дальше полетит снаряд.',
+            'Уровни 1-5: упадёт близко',
+            'Уровни 15-20: улетит далеко',
+            'Но даже максимальная сила не поможет,',
+            'если угол выбран неправильно!'
+          ]
+        },
+        {
+          type: 'spacer'
+        },
+        {
+          type: 'header',
+          icon: 'wind',
+          title: 'ВЛИЯНИЕ ВЕТРА',
+          color: '#4FC3F7'
+        },
+        {
+          type: 'diagram',
+          diagram: 'wind'
+        },
+        {
+          type: 'text',
+          lines: [
+            'Попутный ветер (вправо) — помогает, бросай слабее',
+            'Встречный ветер (влево) — мешает, бросай сильнее'
+          ]
+        },
+        {
+          type: 'spacer'
+        },
+        {
+          type: 'header',
+          icon: 'wall',
+          title: 'КАК ПЕРЕБРОСИТЬ СТЕНУ',
+          color: COLORS.textPink
+        },
+        {
+          type: 'diagram',
+          diagram: 'wall'
+        },
+        {
+          type: 'text',
+          lines: [
+            'Увеличь угол, чтобы снаряд пролетел над стеной.',
+            'Затем подбери силу для точного попадания.'
+          ]
+        },
+        {
+          type: 'spacer'
+        },
+        {
+          type: 'header',
+          icon: 'tips',
+          title: 'СЕКРЕТЫ МЕТКОСТИ',
+          color: COLORS.textGold
+        },
+        {
+          type: 'tips'
+        }
+      ];
+    }
+
+    // ===================== ОТРИСОВКА INTRO =====================
+    
+    function draw_intro_overlay(){
+      const box = {x: 50, y: 30, w: 900, h: 540};
+      
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+      ctx.shadowBlur = 40;
+      roundedRect(box.x, box.y, box.w, box.h, 24, COLORS.panelBg, COLORS.panelBorder);
+      ctx.shadowBlur = 0;
+      
+      // Заголовок
+      drawText("Парабола: попади в цель", box.x + box.w/2, box.y + 32, {
+        align: "center",
+        baseline: "middle",
+        color: COLORS.textPrimary,
+        fontsize: 30,
+        weight: 800
+      });
+      
+      // Декоративная линия
+      const grad = ctx.createLinearGradient(box.x + 100, 0, box.x + box.w - 100, 0);
+      grad.addColorStop(0, 'rgba(79, 172, 254, 0)');
+      grad.addColorStop(0.5, 'rgba(79, 172, 254, 0.6)');
+      grad.addColorStop(1, 'rgba(79, 172, 254, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(box.x + 100, box.y + 52, box.w - 200, 2);
+      
+      // Контент с прокруткой
+      const contentY = box.y + 70;
+      const contentH = box.h - 120;
+      const sections = getIntroSections();
+      
+      // Вычисляем общую высоту контента
+      let totalHeight = 0;
+      const sectionHeights = sections.map(s => {
+        if (s.type === 'header') return 35;
+        if (s.type === 'text') return s.lines.length * 24 + 5;
+        if (s.type === 'mini-demo') return 50;
+        if (s.type === 'controls') return 100;
+        if (s.type === 'stars-demo') return 75;
+        if (s.type === 'spacer') return 15;
+        if (s.type === 'ready') return 50;
+        return 30;
+      });
+      totalHeight = sectionHeights.reduce((a, b) => a + b, 0);
+      
+      const maxScroll = Math.max(0, totalHeight - contentH + 20);
+      const scrollOffset = (maxScroll > 0) ? (INTRO_SCROLL / 30) * maxScroll : 0;
+      
+      // Клиппинг области контента
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(box.x + 10, contentY, box.w - 20, contentH);
+      ctx.clip();
+      
+      let y = contentY - scrollOffset;
+      const leftCol = box.x + 40;
+      const rightCol = box.x + box.w / 2 + 20;
+      
+      for (let i = 0; i < sections.length; i++){
+        const section = sections[i];
+        const sectionH = sectionHeights[i];
+        
+        // Пропускаем секции вне видимости
+        if (y + sectionH < contentY - 10 || y > contentY + contentH + 10) {
+          y += sectionH;
+          continue;
+        }
+        
+        if (section.type === 'header'){
+          // Иконка
+          if (section.icon === 'target') drawIconTarget(leftCol + 12, y + 12, 22);
+          else if (section.icon === 'cannon') drawIconCannon(leftCol + 12, y + 12, 24);
+          else if (section.icon === 'keys') drawKey(leftCol, y + 2, "?", 26);
+          else if (section.icon === 'trajectory'){
+            ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(leftCol, y + 18);
+            ctx.quadraticCurveTo(leftCol + 12, y + 5, leftCol + 24, y + 12);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+          else if (section.icon === 'star') drawStar(leftCol + 12, y + 12, 12, true);
+          
+          drawText(section.title, leftCol + 40, y + 5, {
+            color: section.color,
+            fontsize: 18,
+            weight: 800
+          });
+        }
+        else if (section.type === 'text'){
+          for (let j = 0; j < section.lines.length; j++){
+            drawText(section.lines[j], leftCol + 10, y + j * 24, {
+              color: COLORS.textPrimary,
+              fontsize: 16,
+              weight: 400
+            });
+          }
+        }
+        else if (section.type === 'mini-demo'){
+          // Мини демо: пушка -> траектория -> мишень
+          drawIconCannon(leftCol + 30, y + 25, 30, 40);
+          
+          // Траектория
+          ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+          ctx.setLineDash([5, 5]);
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(leftCol + 55, y + 15);
+          ctx.quadraticCurveTo(leftCol + 150, y - 15, leftCol + 230, y + 25);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.lineWidth = 1;
+          
+          // Мяч в полёте
+          drawIconBall(leftCol + 140, y + 5, 16);
+          
+          // Мишень
+          drawIconTarget(leftCol + 250, y + 25, 28);
+        }
+        else if (section.type === 'controls'){
+          // Первый ряд: угол
+          drawKey(leftCol, y, "↑", 36);
+          drawKey(leftCol, y + 32, "↓", 36);
+          drawText("угол выстрела", leftCol + 50, y + 18, {
+            color: COLORS.textSecondary,
+            fontsize: 14
+          });
+          
+          // Второй ряд: сила
+          drawKey(leftCol + 180, y, "←", 36);
+          drawKey(leftCol + 220, y, "→", 36);
+          drawText("сила броска", leftCol + 270, y + 8, {
+            color: COLORS.textSecondary,
+            fontsize: 14
+          });
+          
+          // Третий ряд: действия (сдвинуто ниже)
+          drawKey(leftCol, y + 70, "ПРОБЕЛ", 80);
+          drawText("выстрел!", leftCol + 95, y + 78, {
+            color: COLORS.textGreen,
+            fontsize: 14,
+            weight: 700
+          });
+          
+          drawKey(leftCol + 180, y + 70, "R", 36);
+          drawText("заново", leftCol + 225, y + 78, {
+            color: COLORS.textSecondary,
+            fontsize: 14
+          });
+          
+          drawKey(leftCol + 310, y + 70, "T", 36);
+          drawText("теория", leftCol + 355, y + 78, {
+            color: COLORS.textSecondary,
+            fontsize: 14
+          });
+        }
+        else if (section.type === 'stars-demo'){
+          // 3 звезды
+          for (let s = 0; s < 3; s++) drawStar(leftCol + 30 + s * 35, y + 18, 14, true);
+          drawText("1-2 попытки — отлично!", leftCol + 140, y + 12, {
+            color: COLORS.textGold,
+            fontsize: 14
+          });
+          
+          // 2 звезды
+          for (let s = 0; s < 2; s++) drawStar(leftCol + 30 + s * 35, y + 45, 14, true);
+          drawStar(leftCol + 30 + 2 * 35, y + 45, 14, false);
+          drawText("3-4 попытки — хорошо", leftCol + 140, y + 39, {
+            color: COLORS.textSecondary,
+            fontsize: 14
+          });
+          
+          // 1 звезда
+          drawStar(leftCol + 30, y + 72, 14, true);
+          drawStar(leftCol + 30 + 35, y + 72, 14, false);
+          drawStar(leftCol + 30 + 70, y + 72, 14, false);
+          drawText("5 попыток — надо тренироваться", leftCol + 140, y + 66, {
+            color: COLORS.textSecondary,
+            fontsize: 14
+          });
+        }
+        else if (section.type === 'ready'){
+          roundedRect(leftCol + 20, y + 15, 280, 40, 20, 'rgba(76, 175, 80, 0.3)', '#4CAF50');
+          drawText("Жми ПРОБЕЛ и начинай!", leftCol + 160, y + 35, {
+            align: 'center',
+            baseline: 'middle',
+            color: COLORS.textGreen,
+            fontsize: 18,
+            weight: 700
+          });
+        }
+        
+        y += sectionH;
+      }
+      
+      ctx.restore();
+      
+      // Скроллбар
+      if (maxScroll > 0){
+        const scrollbarH = contentH * (contentH / totalHeight);
+        const scrollbarY = contentY + (scrollOffset / maxScroll) * (contentH - scrollbarH);
+        roundedRect(box.x + box.w - 18, scrollbarY, 8, Math.max(30, scrollbarH), 4, 'rgba(79, 172, 254, 0.5)', null);
+      }
+      
+      // Нижняя подсказка
+      drawText("↑↓ или колесо — прокрутка", box.x + box.w/2, box.y + box.h - 18, {
+        align: "center",
+        color: COLORS.textSecondary,
+        fontsize: 13
+      });
+    }
+    
+    // ===================== ОТРИСОВКА THEORY =====================
+    
+    function draw_theory_screen(){
+      // Фон
+      ctx.fillStyle = createSkyGradient();
+      ctx.fillRect(0, 0, WIDTH, HEIGHT);
+      
+      const box = {x: 50, y: 30, w: 900, h: 540};
+      
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+      ctx.shadowBlur = 40;
+      roundedRect(box.x, box.y, box.w, box.h, 24, COLORS.panelBg, COLORS.panelBorder);
+      ctx.shadowBlur = 0;
+      
+      // Заголовок
+      drawText("Теория полёта снаряда", box.x + box.w/2, box.y + 32, {
+        align: "center",
+        baseline: "middle",
+        color: COLORS.textPrimary,
+        fontsize: 28,
+        weight: 800
+      });
+      
+      // Декоративная линия
+      const grad = ctx.createLinearGradient(box.x + 100, 0, box.x + box.w - 100, 0);
+      grad.addColorStop(0, 'rgba(79, 172, 254, 0)');
+      grad.addColorStop(0.5, 'rgba(79, 172, 254, 0.6)');
+      grad.addColorStop(1, 'rgba(79, 172, 254, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(box.x + 100, box.y + 52, box.w - 200, 2);
+      
+      const contentY = box.y + 70;
+      const contentH = box.h - 120;
+      const sections = getTheorySections();
+      
+      // Вычисляем высоты
+      const sectionHeights = sections.map(s => {
+        if (s.type === 'header') return 35;
+        if (s.type === 'text') return s.lines.length * 22 + 5;
+        if (s.type === 'diagram') return 90;
+        if (s.type === 'spacer') return 12;
+        if (s.type === 'tips') return 110;
+        return 30;
+      });
+      const totalHeight = sectionHeights.reduce((a, b) => a + b, 0);
+      
+      const maxScroll = Math.max(0, totalHeight - contentH + 20);
+      const scrollOffset = (maxScroll > 0) ? (THEORY_SCROLL / 40) * maxScroll : 0;
+      
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(box.x + 10, contentY, box.w - 20, contentH);
+      ctx.clip();
+      
+      let y = contentY - scrollOffset;
+      const leftCol = box.x + 40;
+      
+      for (let i = 0; i < sections.length; i++){
+        const section = sections[i];
+        const sectionH = sectionHeights[i];
+        
+        if (y + sectionH < contentY - 10 || y > contentY + contentH + 10) {
+          y += sectionH;
+          continue;
+        }
+        
+        if (section.type === 'header'){
+          // Иконки для теории
+          if (section.icon === 'ball') drawIconBall(leftCol + 12, y + 12, 22);
+          else if (section.icon === 'angle'){
+            ctx.strokeStyle = section.color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(leftCol + 12, y + 18, 10, -Math.PI/2, 0);
+            ctx.stroke();
+            ctx.lineWidth = 1;
+          }
+          else if (section.icon === 'power'){
+            // Индикатор силы
+            ctx.fillStyle = 'rgba(255, 183, 77, 0.3)';
+            ctx.fillRect(leftCol, y + 8, 24, 12);
+            ctx.fillStyle = section.color;
+            ctx.fillRect(leftCol, y + 8, 18, 12);
+          }
+          else if (section.icon === 'wind') drawIconWind(leftCol + 12, y + 12, 24, 1);
+          else if (section.icon === 'wall') drawIconWall(leftCol + 5, y + 5, 10, 18);
+          else if (section.icon === 'tips') drawStar(leftCol + 12, y + 12, 12, true);
+          
+          drawText(section.title, leftCol + 40, y + 5, {
+            color: section.color,
+            fontsize: 18,
+            weight: 800
+          });
+        }
+        else if (section.type === 'text'){
+          for (let j = 0; j < section.lines.length; j++){
+            drawText(section.lines[j], leftCol + 10, y + j * 22, {
+              color: COLORS.textPrimary,
+              fontsize: 15,
+              weight: 400
+            });
+          }
+        }
+        else if (section.type === 'diagram'){
+          // Рамка диаграммы
+          roundedRect(leftCol + 50, y, 350, 85, 10, 'rgba(0,0,0,0.2)', 'rgba(255,255,255,0.1)');
+          
+          if (section.diagram === 'angles'){
+            drawAngleDiagram(leftCol + 55, y + 5, 340, 75);
+          }
+          else if (section.diagram === 'wind'){
+            drawWindDiagram(leftCol + 55, y + 5, 340, 75);
+          }
+          else if (section.diagram === 'wall'){
+            drawWallDiagram(leftCol + 55, y + 5, 340, 75);
+          }
+        }
+        else if (section.type === 'tips'){
+          const tips = [
+            {num: "1", text: "Начни с угла 45° и силы 10", color: COLORS.textAccent},
+            {num: "2", text: "Недолёт? Добавь силу или уменьши угол", color: COLORS.textGreen},
+            {num: "3", text: "Перелёт? Убавь силу или увеличь угол", color: COLORS.textOrange},
+            {num: "4", text: "Меняй что-то одно и смотри результат", color: COLORS.textPink},
+          ];
+          
+          for (let t = 0; t < tips.length; t++){
+            const tip = tips[t];
+            // Номер в кружке
+            filledCircle(leftCol + 20, y + t * 26 + 10, 12, tip.color);
+            drawText(tip.num, leftCol + 20, y + t * 26 + 10, {
+              align: 'center',
+              baseline: 'middle',
+              color: '#1a1a2e',
+              fontsize: 13,
+              weight: 800
+            });
+            
+            drawText(tip.text, leftCol + 45, y + t * 26 + 3, {
+              color: COLORS.textPrimary,
+              fontsize: 15
+            });
+          }
+        }
+        
+        y += sectionH;
+      }
+      
+      ctx.restore();
+      
+      // Скроллбар
+      if (maxScroll > 0){
+        const scrollbarH = contentH * (contentH / totalHeight);
+        const scrollbarY = contentY + (scrollOffset / maxScroll) * (contentH - scrollbarH);
+        roundedRect(box.x + box.w - 18, scrollbarY, 8, Math.max(30, scrollbarH), 4, 'rgba(79, 172, 254, 0.5)', null);
+      }
+      
+      // Нижняя подсказка
+      drawKey(box.x + box.w/2 - 100, box.y + box.h - 30, "T", 30);
+      drawText("назад в игру", box.x + box.w/2 - 60, box.y + box.h - 22, {
+        color: COLORS.textSecondary,
+        fontsize: 14
+      });
+    }
+
+    // ===================== ОСТАЛЬНОЙ КОД РЕНДЕРА =====================
+    
+    function drawCloud(x, y, scale){
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.beginPath();
+      ctx.arc(x, y, 25 * scale, 0, Math.PI * 2);
+      ctx.arc(x + 30 * scale, y - 10 * scale, 30 * scale, 0, Math.PI * 2);
+      ctx.arc(x + 60 * scale, y, 25 * scale, 0, Math.PI * 2);
+      ctx.arc(x + 30 * scale, y + 5 * scale, 20 * scale, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawSun(){
+      const x = 880, y = 70;
+      
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, 80);
+      grad.addColorStop(0, 'rgba(255, 235, 59, 0.8)');
+      grad.addColorStop(0.5, 'rgba(255, 193, 7, 0.3)');
+      grad.addColorStop(1, 'rgba(255, 193, 7, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, 80, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.fillStyle = '#FFD54F';
+      ctx.beginPath();
+      ctx.arc(x, y, 35, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.strokeStyle = '#FFE082';
+      ctx.lineWidth = 3;
+      for (let i = 0; i < 12; i++){
+        const ang = deg2rad(i * 30 + animTime * 10);
+        const x1 = x + Math.cos(ang) * 42;
+        const y1 = y + Math.sin(ang) * 42;
+        const x2 = x + Math.cos(ang) * 55;
+        const y2 = y + Math.sin(ang) * 55;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1;
+    }
+
+    function drawCannon(x, y, angle){
+      const rad = deg2rad(angle);
+      
+      ctx.fillStyle = COLORS.cannonBody;
+      ctx.beginPath();
+      ctx.arc(x, y, 22, 0, Math.PI, true);
+      ctx.fill();
+      
+      ctx.fillStyle = '#263238';
+      filledCircle(x - 18, y + 2, 10, '#263238');
+      filledCircle(x + 18, y + 2, 10, '#263238');
+      ctx.fillStyle = '#455A64';
+      filledCircle(x - 18, y + 2, 5, '#455A64');
+      filledCircle(x + 18, y + 2, 5, '#455A64');
+      
+      ctx.save();
+      ctx.translate(x, y - 5);
+      ctx.rotate(-rad);
+      
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.fillRect(-8, -6, 65, 14);
+      
+      const barrelGrad = ctx.createLinearGradient(0, -6, 0, 8);
+      barrelGrad.addColorStop(0, COLORS.cannonHighlight);
+      barrelGrad.addColorStop(0.5, COLORS.cannonAccent);
+      barrelGrad.addColorStop(1, COLORS.cannonBody);
+      ctx.fillStyle = barrelGrad;
+      ctx.fillRect(-5, -5, 60, 12);
+      
+      ctx.fillStyle = COLORS.cannonBody;
+      ctx.fillRect(15, -7, 4, 16);
+      ctx.fillRect(35, -7, 4, 16);
+      
+      ctx.fillStyle = '#1B2631';
+      ctx.beginPath();
+      ctx.arc(55, 1, 7, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.restore();
+      
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y - 5, 45, -Math.PI, -deg2rad(angle), false);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+
+    function drawTarget(tx, ty, tr){
+      ctx.shadowColor = 'rgba(229, 57, 53, 0.6)';
+      ctx.shadowBlur = 15;
+      
+      filledCircle(tx, ty, tr + 8, COLORS.targetRing2);
+      filledCircle(tx, ty, tr + 4, COLORS.targetRing1);
+      filledCircle(tx, ty, tr, COLORS.target);
+      filledCircle(tx, ty, tr * 0.5, COLORS.targetRing2);
+      filledCircle(tx, ty, tr * 0.2, COLORS.targetCenter);
+      
+      ctx.shadowBlur = 0;
+      
+      const pulse = Math.sin(animTime * 4) * 0.1 + 1;
+      strokedCircle(tx, ty, tr * pulse + 12, 'rgba(255, 255, 255, 0.4)', 2);
+    }
+
+    function drawObstacle(ox, oy, ow, oh){
+      const wallGrad = ctx.createLinearGradient(ox, oy, ox + ow, oy);
+      wallGrad.addColorStop(0, '#546E7A');
+      wallGrad.addColorStop(0.5, '#607D8B');
+      wallGrad.addColorStop(1, '#546E7A');
+      ctx.fillStyle = wallGrad;
+      ctx.fillRect(ox, oy, ow, oh);
+      
+      const brickH = 12;
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+      ctx.lineWidth = 1;
+      
+      for (let y = oy; y < oy + oh; y += brickH){
+        ctx.beginPath();
+        ctx.moveTo(ox, y);
+        ctx.lineTo(ox + ow, y);
+        ctx.stroke();
+      }
+      
+      ctx.fillStyle = '#78909C';
+      roundedRect(ox - 2, oy - 6, ow + 4, 8, 3, '#78909C', null);
+      
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.fillRect(ox + ow, oy + 5, 4, oh - 5);
+    }
+
+    function drawWindIndicator(){
+      const lvl = current_level();
+      if (lvl.wind_ax === 0) return;
+      
+      const x = 850;
+      const y = 150;
+      const isRight = lvl.wind_ax > 0;
+      const strength = Math.abs(lvl.wind_ax);
+      
+      roundedRect(x - 45, y - 25, 90, 50, 10, 'rgba(0,0,0,0.4)', null);
+      
+      const arrowLen = 25 + strength * 0.3;
+      const dir = isRight ? 1 : -1;
+      
+      ctx.strokeStyle = isRight ? '#4FC3F7' : '#FF8A65';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x - dir * arrowLen, y);
+      ctx.lineTo(x + dir * arrowLen, y);
+      ctx.stroke();
+      
+      ctx.beginPath();
+      ctx.moveTo(x + dir * arrowLen, y);
+      ctx.lineTo(x + dir * (arrowLen - 10), y - 8);
+      ctx.moveTo(x + dir * arrowLen, y);
+      ctx.lineTo(x + dir * (arrowLen - 10), y + 8);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      
+      const windText = isRight ? ">>>" : "<<<";
+      drawText(windText, x, y + 20, {
+        align: "center",
+        baseline: "middle",
+        color: isRight ? '#4FC3F7' : '#FF8A65',
+        fontsize: 14,
+        weight: 700
+      });
+    }
+
+    function drawGrass(){
+      const grassY = GROUND_Y;
+      ctx.strokeStyle = '#558B2F';
+      ctx.lineWidth = 2;
+      
+      for (let x = 0; x < WIDTH; x += 15){
+        const h = 8 + Math.sin(x * 0.1 + animTime) * 3;
+        const bend = Math.sin(animTime * 2 + x * 0.05) * 2;
+        ctx.beginPath();
+        ctx.moveTo(x, grassY);
+        ctx.quadraticCurveTo(x + bend, grassY - h/2, x + bend * 2, grassY - h);
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1;
+    }
+
+    function draw_background(){
+      ctx.fillStyle = createSkyGradient();
+      ctx.fillRect(0, 0, WIDTH, GROUND_Y);
+      
+      drawSun();
+      
+      drawCloud(100 + Math.sin(animTime * 0.3) * 10, 80, 0.8);
+      drawCloud(350 + Math.sin(animTime * 0.2) * 15, 120, 0.6);
+      drawCloud(600 + Math.sin(animTime * 0.25) * 12, 60, 0.7);
+      
+      ctx.fillStyle = createGroundGradient();
+      ctx.fillRect(0, GROUND_Y, WIDTH, HEIGHT - GROUND_Y);
+      
+      drawGrass();
+      
+      line(0, GROUND_Y, WIDTH, GROUND_Y, '#8BC34A', 3);
+    }
+
+    function draw_ui_panel(){
+      const lvl = current_level();
+      
+      roundedRect(10, 10, 980, 95, 12, COLORS.panelBg, COLORS.panelBorder);
+      
+      drawText(`Уровень ${level_index+1}/${LEVELS.length}`, 25, 22, {
+        color: COLORS.textAccent,
+        fontsize: 16,
+        weight: 700
+      });
+      drawText(lvl.name, 25, 42, {
+        color: COLORS.textPrimary,
+        fontsize: 22,
+        weight: 800
+      });
+      
+      const paramX = 280;
+      
+      drawText("Угол", paramX, 22, {color: COLORS.textSecondary, fontsize: 14});
+      drawText(`${angle_deg}°`, paramX, 42, {color: COLORS.textGold, fontsize: 24, weight: 800});
+      
+      drawText("Сила", paramX + 90, 22, {color: COLORS.textSecondary, fontsize: 14});
+      drawText(`${power_level}`, paramX + 90, 42, {color: COLORS.textGold, fontsize: 24, weight: 800});
+      
+      drawText("Попытки", paramX + 170, 22, {color: COLORS.textSecondary, fontsize: 14});
+      drawText(`${attempts}/${ATTEMPT_LIMIT}`, paramX + 170, 42, {
+        color: attempts >= ATTEMPT_LIMIT - 1 ? '#FF8A65' : COLORS.textPrimary,
+        fontsize: 24,
+        weight: 800
+      });
+      
+      drawText("Звёзды", paramX + 280, 22, {color: COLORS.textSecondary, fontsize: 14});
+      const stX = paramX + 280;
+      for (let i = 0; i < 3; i++){
+        drawStar(stX + i * 28, 52, 11, i < stars_per_level[level_index]);
+      }
+      
+      drawText(`Всего: ${total_stars()}/18`, paramX + 380, 45, {
+        color: COLORS.textGold,
+        fontsize: 18,
+        weight: 700
+      });
+      
+      drawText("↑↓ угол   ←→ сила   ПРОБЕЛ выстрел   R заново   T теория", 25, 75, {
+        color: COLORS.textSecondary,
+        fontsize: 14
+      });
+    }
+
+    function draw_target_and_obstacles(){
+      for (const [ox, oy, ow, oh] of current_level().obstacles){
+        drawObstacle(ox, oy, ow, oh);
+      }
+      
+      const [tx, ty, tr] = current_level().target;
+      drawTarget(tx, ty, tr);
+    }
+
+    function draw_preview(){
+      if (state !== "aim") return;
+      const pts = compute_preview_points();
+      if (pts.length > 1){
+        for (let i = 0; i < pts.length; i++){
+          const [x, y] = pts[i];
+          const alpha = 0.6 - (i / pts.length) * 0.4;
+          ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+          ctx.beginPath();
+          ctx.arc(x, y, 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    function draw_ball_and_trail(){
+      if (ball.trail.length){
+        for (let i = 0; i < ball.trail.length; i++){
+          const [px, py] = ball.trail[i];
+          const progress = i / ball.trail.length;
+          const r = 2 + progress * 4;
+          const alpha = 0.2 + progress * 0.5;
+          ctx.fillStyle = `rgba(129, 199, 132, ${alpha})`;
+          ctx.beginPath();
+          ctx.arc(px, py, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      drawCannon(120, GROUND_Y, angle_deg);
+
+      if (ball.alive){
+        ctx.shadowColor = COLORS.ballGlow;
+        ctx.shadowBlur = 15;
+        
+        const ballGrad = ctx.createRadialGradient(ball.x - 3, ball.y - 3, 0, ball.x, ball.y, 12);
+        ballGrad.addColorStop(0, '#81C784');
+        ballGrad.addColorStop(0.7, COLORS.ball);
+        ballGrad.addColorStop(1, '#388E3C');
+        ctx.fillStyle = ballGrad;
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, 10, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.shadowBlur = 0;
+        
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.beginPath();
+        ctx.arc(ball.x - 3, ball.y - 3, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function draw_overlay_messages(){
+      if (state !== "win") return;
+
+      const box = {x:150, y:240, w:700, h:120};
+      
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+      ctx.shadowBlur = 20;
+      roundedRect(box.x, box.y, box.w, box.h, 16, COLORS.successBg, COLORS.successBorder);
+      ctx.shadowBlur = 0;
+      
+      drawText("ПОПАДАНИЕ!", box.x + box.w/2, box.y + 35, {
+        align:"center", baseline:"middle",
+        color: COLORS.textPrimary, fontsize: 32,
+        weight: 800,
+        owidth: 2, ocolor: "rgba(0,0,0,0.3)"
+      });
+
+      const cx = box.x + box.w / 2;
+      for (let i = 0; i < 3; i++){
+        drawStar(cx - 50 + i*50, box.y + 70, 18, i < stars_last);
+      }
+      
+      drawText("ПРОБЕЛ — дальше   R — повторить", box.x + box.w/2, box.y + box.h - 15, {
+        align:"center", baseline:"middle",
+        color: COLORS.textSecondary, fontsize: 14
+      });
+    }
+
+    function draw_fail_overlay(){
+      if (state !== "fail") return;
+      
+      const box = {x:150, y:250, w:700, h:80};
+      
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+      ctx.shadowBlur = 20;
+      roundedRect(box.x, box.y, box.w, box.h, 16, COLORS.failBg, COLORS.failBorder);
+      ctx.shadowBlur = 0;
+      
+      drawText("Попытки закончились!", box.x + box.w/2, box.y + 30, {
+        align:"center", baseline:"middle",
+        color: COLORS.textPrimary, fontsize: 26,
+        weight: 700
+      });
+      
+      drawText("ПРОБЕЛ — следующий уровень   R — попробовать снова", box.x + box.w/2, box.y + 58, {
+        align:"center", baseline:"middle",
+        color: COLORS.textSecondary, fontsize: 14
+      });
+    }
+
+    function draw_final_overlay(){
+      const total = total_stars();
+      const msg2 = grade_comment(total);
+
+      const box = {x:150, y:180, w:700, h:240};
+      
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+      ctx.shadowBlur = 30;
+      roundedRect(box.x, box.y, box.w, box.h, 20, COLORS.infoBg, COLORS.infoBorder);
+      ctx.shadowBlur = 0;
+
+      drawText("ИГРА ЗАВЕРШЕНА!", box.x + box.w/2, box.y + 40, {
+        align:"center", baseline:"middle",
+        color: COLORS.textPrimary, fontsize: 32,
+        weight: 800
+      });
+      
+      drawText(`Результат: ${total} из 18`, box.x + box.w/2, box.y + 80, {
+        align:"center", baseline:"middle",
+        color: COLORS.textGold, fontsize: 26,
+        weight: 700
+      });
+      
+      let sx = box.x + 80;
+      for (let li = 0; li < LEVELS.length; li++){
+        drawText(`${li+1}:`, sx, box.y + 115, {
+          color: COLORS.textSecondary,
+          fontsize: 14
+        });
+        for (let i = 0; i < 3; i++){
+          drawStar(sx + 25 + i*22, box.y + 122, 9, i < stars_per_level[li]);
+        }
+        sx += 95;
+      }
+
+      const lines = wrap_text(msg2, 50);
+      let y = box.y + 160;
+      for (const s of lines){
+        drawText(s, box.x + box.w/2, y, {
+          align:"center", baseline:"middle",
+          color: COLORS.textPrimary, fontsize: 18
+        });
+        y += 24;
+      }
+
+      drawText("R — начать заново   T — теория", box.x + box.w/2, box.y + box.h - 20, {
+        align:"center", baseline:"middle",
+        color: COLORS.textSecondary, fontsize: 14
+      });
+    }
+    
+    function wrap_text(text, max_len){
+      const words = text.split(/\s+/).filter(Boolean);
+      const lines = [];
+      let cur = "";
+      for (const w of words){
+        if ((cur.length + w.length + (cur ? 1 : 0)) <= max_len){
+          cur = cur ? (cur + " " + w) : w;
+        } else {
+          lines.push(cur);
+          cur = w;
+        }
+      }
+      if (cur) lines.push(cur);
+      return lines;
+    }
+
+    function draw(){
+      if (state === "theory"){
+        draw_theory_screen();
+        return;
+      }
+
+      draw_background();
+      draw_ui_panel();
+      draw_target_and_obstacles();
+      drawWindIndicator();
+      draw_preview();
+      draw_ball_and_trail();
+
+      if (state === "final") draw_final_overlay();
+      else if (state === "win") draw_overlay_messages();
+      else if (state === "fail") draw_fail_overlay();
+
+      if (state === "intro") draw_intro_overlay();
+    }
+
+    // ===================== УПРАВЛЕНИЕ =====================
+    
+    function scroll_intro(delta){
+      INTRO_SCROLL = clamp(INTRO_SCROLL + delta, 0, 30);
+    }
+    
+    function scroll_theory(delta){
+      THEORY_SCROLL = clamp(THEORY_SCROLL + delta, 0, 40);
+    }
+    
+    function onKeyDown(e){
+      const code = e.code;
+
+      if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space","PageUp","PageDown"].includes(code)){
+        e.preventDefault();
+      }
+
+      if (code === "KeyT"){
+        if (state !== "theory"){
+          THEORY_PREV_STATE = state;
+          THEORY_SCROLL = 0;
+          state = "theory";
+        } else {
+          state = THEORY_PREV_STATE || "aim";
+        }
+        return;
+      }
+
+      if (code === "KeyR"){
+        if (state === "final"){
+          attempts = 0;
+          level_index = 0;
+          for (let i = 0; i < stars_per_level.length; i++) stars_per_level[i] = 0;
+          INTRO_SCROLL = 0;
+          reset_ball();
+          state = "intro";
+        } else {
+          attempts = 0;
+          reset_ball();
+          state = "aim";
+        }
+        return;
+      }
+
+      if (state === "theory"){
+        if (code === "ArrowDown") scroll_theory(+2);
+        else if (code === "ArrowUp") scroll_theory(-2);
+        else if (code === "PageDown") scroll_theory(+8);
+        else if (code === "PageUp") scroll_theory(-8);
+        else if (code === "Escape" || code === "Backspace") state = THEORY_PREV_STATE || "aim";
+        return;
+      }
+
+      if (state === "intro"){
+        if (code === "ArrowDown") scroll_intro(+2);
+        else if (code === "ArrowUp") scroll_intro(-2);
+        else if (code === "Space") state = "aim";
+        return;
+      }
+
+      if (state === "final") return;
+
+      if (state === "fail"){
+        if (code === "Space"){
+          if (level_index < LEVELS.length - 1){
+            level_index += 1;
+            attempts = 0;
+            reset_ball();
+            state = "aim";
+          } else {
+            state = "final";
+          }
+        }
+        return;
+      }
+
+      if (state === "win"){
+        if (code === "Space"){
+          if (level_index < LEVELS.length - 1){
+            level_index += 1;
+            attempts = 0;
+            reset_ball();
+            state = "aim";
+          } else {
+            state = "final";
+          }
+        }
+        return;
+      }
+
+      if (state === "aim"){
+        if (code === "ArrowUp") angle_deg = clamp(angle_deg + 1, 15, 80);
+        else if (code === "ArrowDown") angle_deg = clamp(angle_deg - 1, 15, 80);
+        else if (code === "ArrowRight") power_level = clamp(power_level + 1, 1, 20);
+        else if (code === "ArrowLeft") power_level = clamp(power_level - 1, 1, 20);
+        else if (code === "Space") start_shot();
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown, {passive:false});
+
+    canvas.addEventListener("wheel", (e) => {
+      if (state === "theory"){
+        e.preventDefault();
+        if (e.deltaY < 0) scroll_theory(-3);
+        else if (e.deltaY > 0) scroll_theory(+3);
+        return;
+      }
+      if (state === "intro"){
+        e.preventDefault();
+        if (e.deltaY < 0) scroll_intro(-2);
+        else if (e.deltaY > 0) scroll_intro(+2);
+      }
+    }, {passive:false});
+
+    // ===================== ИГРОВОЙ ЦИКЛ =====================
+    
+    let lastTs = null;
+    function frame(ts){
+      if (lastTs == null) lastTs = ts;
+      let dt = (ts - lastTs) / 1000;
+      lastTs = ts;
+      dt = clamp(dt, 0, 0.05);
+      update(dt);
+      draw();
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+
+    // ---- platform integration (progress/save/stats) ----
+    window.GameInstance = {
+      exportState(){
+        return { v: 1, level_index, stars_per_level: Array.isArray(stars_per_level) ? stars_per_level.slice() : [] };
+      },
+      importState(s){
+        if (!s || typeof s !== "object") return;
+        if (Number.isInteger(s.level_index)) level_index = Math.max(0, Math.min(LEVELS.length-1, s.level_index));
+        if (Array.isArray(s.stars_per_level)) {
+          stars_per_level = s.stars_per_level.map(x => Math.max(0, Math.min(3, Number(x)||0)));
+          while (stars_per_level.length < LEVELS.length) stars_per_level.push(0);
+          stars_per_level = stars_per_level.slice(0, LEVELS.length);
+        }
+        attempts = 0;
+        state = "aim";
+        reset_ball();
+      },
+      getSessionSummary(){
+        const by = Array.isArray(stars_per_level) ? stars_per_level.slice() : [];
+        return {
+          stars_total: (typeof total_stars === "function") ? total_stars() : by.reduce((a,b)=>a+(+b||0),0),
+          stars_by_level: by,
+          level_reached: (Number.isInteger(level_index) ? level_index+1 : null),
+        };
+      }
+    };
+  })();
+  </script>
+<script src="/platform/client.js"></script>
+<script src="/platform/bridge.js"></script>
+</body>
+</html>

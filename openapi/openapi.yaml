@@ -1,0 +1,60 @@
+openapi: "3.0.0"
+info:
+  title: Mini-games Platform (static + API)
+  version: "1.0.0"
+
+x-yc-apigateway:
+  service_account_id: ${SERVICE_ACCOUNT_ID}
+  cors:
+    origin: "*"
+    methods: "*"
+    allowedHeaders: "*"
+    exposedHeaders: "*"
+    maxAge: 3600
+
+paths:
+  /:
+    get:
+      summary: Serve app shell (index.html) from Object Storage
+      x-yc-apigateway-integration:
+        type: object_storage
+        bucket: ${FRONT_BUCKET}
+        object: "index.html"
+      responses:
+        "200":
+          description: OK
+
+  /api/{proxy+}:
+    x-yc-apigateway-any-method:
+      summary: Proxy all /api/* requests to Cloud Function
+      parameters:
+        - name: proxy
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: cloud_functions
+        function_id: ${API_FUNCTION_ID}
+        tag: "$latest"
+        payload_format_version: "1.0"
+      responses:
+        "200":
+          description: OK
+
+  /{file+}:
+    get:
+      summary: Serve static file from Object Storage
+      parameters:
+        - name: file
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: object_storage
+        bucket: ${FRONT_BUCKET}
+        object: "{file}"
+      responses:
+        "200":
+          description: OK
