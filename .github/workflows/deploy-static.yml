@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "main" ]
     paths:
-      - "frontend/**"
+      - "public/**"
       - ".github/workflows/deploy-static.yml"
 
 jobs:
@@ -28,8 +28,9 @@ jobs:
           test -n "$STATIC_BUCKET" || (echo "STATIC_BUCKET is empty" && exit 1)
           echo "S3_ENDPOINT=$S3_ENDPOINT"
           echo "STATIC_BUCKET=$STATIC_BUCKET"
+          test -d public || (echo "public/ folder not found" && ls -la && exit 1)
 
-      - name: Upload static to Object Storage
+      - name: Upload static to Object Storage (public/)
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -39,4 +40,6 @@ jobs:
         run: |
           set -e
           export AWS_EC2_METADATA_DISABLED=true
-          aws --endpoint-url "$S3_ENDPOINT" s3 sync ./frontend "s3://$STATIC_BUCKET" --delete
+
+          # Для начала просто синхронизируем public/ как корень сайта
+          aws --endpoint-url "$S3_ENDPOINT" s3 sync ./public "s3://$STATIC_BUCKET" --delete

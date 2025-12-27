@@ -45,7 +45,14 @@ jobs:
           YC_FOLDER_ID: ${{ vars.YC_FOLDER_ID }}
         run: |
           set -e
-          printf '%s' "$YC_SA_KEY_JSON_B64" | base64 -d > yc-key.json
+          python3 - <<'PY'
+          import os, base64, json
+          data = base64.b64decode(os.environ["YC_SA_KEY_JSON_B64"].encode("ascii"))
+          open("yc-key.json", "wb").write(data)
+          json.load(open("yc-key.json", "r", encoding="utf-8"))
+          print("yc-key.json OK")
+          PY
+
           yc config profile create gha || true
           yc config profile activate gha
           yc config set service-account-key yc-key.json
@@ -104,12 +111,13 @@ jobs:
           set -e
           python3 - <<'PY'
           import os
-          p = "backend/openapi.yaml"
-          s = open(p, "r", encoding="utf-8").read()
+          src = "openapi/openapi.yaml"
+          s = open(src, "r", encoding="utf-8").read()
           s = s.replace("${FRONT_BUCKET}", os.environ["STATIC_BUCKET"])
           s = s.replace("${API_FUNCTION_ID}", os.environ["YC_FUNCTION_ID"])
           s = s.replace("${SERVICE_ACCOUNT_ID}", os.environ["YC_GATEWAY_SA_ID"])
           open("openapi.rendered.yaml", "w", encoding="utf-8").write(s)
+          print("Rendered openapi.rendered.yaml from", src)
           PY
 
       - name: Update API Gateway spec
