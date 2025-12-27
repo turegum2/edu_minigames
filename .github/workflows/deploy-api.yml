@@ -41,12 +41,13 @@ jobs:
 
       - name: Configure yc CLI with service account key
         env:
-          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON_B64 }}
           YC_FOLDER_ID: ${{ vars.YC_FOLDER_ID }}
         run: |
           set -e
-          echo "$YC_SA_KEY_JSON" > yc-key.json
+          printf '%s' "$YC_SA_KEY_JSON_B64" | base64 -d > yc-key.json
           yc config profile create gha || true
+          yc config profile activate gha
           yc config set service-account-key yc-key.json
           yc config set folder-id "$YC_FOLDER_ID"
 
