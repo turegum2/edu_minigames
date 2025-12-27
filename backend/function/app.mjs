@@ -147,13 +147,24 @@ async function getYdb(context) {
   if (ydb) return ydb;
   if (!YDB_DB_NAME) throw new Error("YDB_DB_NAME is required");
 
-  // IAM token may appear as context.access_token or context.token (depends on runtime/invocation).
-  // Optional fallback via env for local/dev runs.
-  const iamToken = context?.access_token || context?.token || process.env.YDB_IAM_TOKEN || "";
-  ydb = new Ydb({
-    dbName: YDB_DB_NAME,
-    authToken: iamToken ? `Bearer ${iamToken}` : undefined,
-  });
+  // Cloud Functions: context.token is an object: { access_token, expires_in, token_type }
+  // https://yandex.cloud/en/docs/functions/lang/nodejs/context
+  const iamToken =
+    (context?.token && typeof context.token === "object" ? context.token.access_token : "") ||
+    (typeof context?.access_token === "string" ? context.access_token : "") ||
+    (typeof context?.token === "string" ? context.token : "") ||
+    process.env.YDB_IAM_TOKEN ||
+    "";
+
+  if (!iamToken) {
+    // Это почти всегда значит: у ВЕРСИИ функции не задан service account
+    // или локальный запуск без YDB_IAM_TOKEN.
+    console.log("No IAM token in context. context.token type =", typeof context?.token);
+    throw new Error("No IAM token for YDB");
+  }
+
+  // ydb-sdk-lite expects iamToken (no manual 'Bearer ')
+  ydb = new Ydb({ dbName: YDB_DB_NAME, iamToken });
   return ydb;
 }
 
@@ -279,7 +290,7 @@ async function dbPutAuthCode(context, phone, codeHash, expiresAtIso) {
   const y = await getYdb(context);
   const q = `
     UPSERT INTO ${TP}auth_codes (phone, code_hash, expires_at, created_at)
-    VALUES ($phone, $hash, DateTime::ParseIso8601($exp), CurrentUtcTimestamp());
+    VALUES ($phone, $hash, CAST($exp AS Timestamp), CurrentUtcTimestamp());
   `;
   await y.executeDataQuery(q, { "$phone": phone, "$hash": codeHash, "$exp": expiresAtIso });
 }
