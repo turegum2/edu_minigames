@@ -1428,7 +1428,7 @@ function drawFinalOverlay() {
     ly += 24;
   }
   
-  drawText("R — начать заново   T — теория", box.x + box.w / 2, box.y + box.h - 25, {
+  drawText("R — начать заново   M — в меню   T — теория", box.x + box.w / 2, box.y + box.h - 25, {
     align: 'center', baseline: 'middle',
     color: COLORS.textSecondary, fontsize: 14
   });
@@ -1606,6 +1606,19 @@ window.addEventListener("keydown", (evt) => {
     }
     return;
   }
+
+
+  if (key === "m" || key === "M") {
+    const P = window.Platform;
+    if (state === "final" && P && typeof P.finishAndExit === "function") {
+      P.finishAndExit("finish");
+    } else if (P && typeof P.exit === "function") {
+      P.exit();
+    } else {
+      location.href = "/";
+    }
+    return;
+  }
   
   if (key === "Escape" && state === "theory") {
     state = prevStateForTheory || "play";
@@ -1683,7 +1696,7 @@ window.addEventListener("keydown", (evt) => {
 });
 
 window.GameInstance = {
-  exportState(){ return { v: 1, levelIndex, starsPerLevel: Array.isArray(starsPerLevel) ? starsPerLevel.slice() : [] }; },
+  exportState(){ return { v: 1, levelIndex, completed: (state === "final"),starsPerLevel: Array.isArray(starsPerLevel) ? starsPerLevel.slice() : [] }; },
   importState(s){
     if (!s || typeof s !== "object") return;
     if (Number.isInteger(s.levelIndex)) levelIndex = Math.max(0, Math.min(LEVELS.length-1, s.levelIndex));
@@ -1693,8 +1706,9 @@ window.GameInstance = {
       starsPerLevel = starsPerLevel.slice(0, LEVELS.length);
     }
     resetLevel();
-    state = "play";
+    state = (s && s.completed) ? "final" : "play";
   },
+  isCompleted(){ return state === "final"; },
   getSessionSummary(){
     const by = Array.isArray(starsPerLevel) ? starsPerLevel.slice() : [];
     return {

@@ -1,10 +1,26 @@
 /* global window, document, location, PlatformApi */
 (function(){
   const GAME_ID = (function(){
-    // /games/<id>.html
+    // Preferred: game HTML declares window.__GAME_ID__ = "..."
+    if (typeof window.__GAME_ID__ === "string" && window.__GAME_ID__) return window.__GAME_ID__;
+    // Fallback: infer from URL like /games/<id>.html
     const m = location.pathname.match(/\/games\/([^\/]+)\.html$/);
     return m ? decodeURIComponent(m[1]) : "unknown";
   })();
+
+  // Optional override: /games/parabola.html?menu=/some/path/
+  const MENU_URL = (new URL(location.href)).searchParams.get("menu") || "/";
+
+  function menuHrefWithNext(nextPath){
+    try{
+      const u = new URL(MENU_URL, location.origin);
+      u.searchParams.set("next", nextPath);
+      return u.pathname + u.search;
+    } catch(_){
+      return `/?next=${encodeURIComponent(nextPath)}`;
+    }
+  }
+
 
   const MODE = (new URL(location.href)).searchParams.get("mode") || "new";
 
@@ -146,22 +162,55 @@
 
   // -------- Game adapter (per-game functions are minimal and already exist in your HTML) --------
   function createGameInstance(){
-    // Each game exports these:
-    // getState() -> object
-    // importState(obj) -> void
-    // reset_to_new_game() -> void (or similar)
-    // getSessionSummary() -> object
+    // Supported conventions:
+    // 1) window.GameInstance.{exportState, importState, getSessionSummary, ...}  (per docs)
+    // 2) Legacy globals: window.exportState/window.importState OR window.getState()
     const w = window;
+    const inst = (w.GameInstance && typeof w.GameInstance === "object") ? w.GameInstance : {};
 
-    // fallback: if some functions are missing, we still support "exit without save"
-    const gi = {
-      getState: typeof w.getState === "function" ? ()=>w.getState() : ()=>null,
-      importState: typeof w.importState === "function" ? (s)=>w.importState(s) : null,
-      resetToNew: typeof w.reset_to_new_game === "function" ? ()=>w.reset_to_new_game()
-                : (typeof w.resetToNewGame === "function" ? ()=>w.resetToNewGame() : null),
-      getSessionSummary: typeof w.getSessionSummary === "function" ? ()=>w.getSessionSummary() : ()=>({}),
+    const exportFn =
+      (typeof w.getState === "function" ? w.getState
+      : (typeof w.exportState === "function" ? w.exportState
+      : (typeof inst.getState === "function" ? inst.getState.bind(inst)
+      : (typeof inst.exportState === "function" ? inst.exportState.bind(inst)
+      : null))));
+
+    const importFn =
+      (typeof w.importState === "function" ? w.importState
+      : (typeof inst.importState === "function" ? inst.importState.bind(inst)
+      : null));
+
+    const resetFn =
+      (typeof w.reset_to_new_game === "function" ? w.reset_to_new_game
+      : (typeof w.resetToNewGame === "function" ? w.resetToNewGame
+      : (typeof inst.reset_to_new_game === "function" ? inst.reset_to_new_game.bind(inst)
+      : (typeof inst.resetToNewGame === "function" ? inst.resetToNewGame.bind(inst)
+      : (typeof inst.resetToNew === "function" ? inst.resetToNew.bind(inst)
+      : null)))));
+
+    const summaryFn =
+      (typeof w.getSessionSummary === "function" ? w.getSessionSummary
+      : (typeof inst.getSessionSummary === "function" ? inst.getSessionSummary.bind(inst)
+      : ()=>({})));
+
+    const completedFn =
+      (typeof w.isCompleted === "function" ? w.isCompleted
+      : (typeof inst.isCompleted === "function" ? inst.isCompleted.bind(inst)
+      : (typeof inst.isFinished === "function" ? inst.isFinished.bind(inst)
+      : null)));
+
+    // Fallback: if some functions are missing, we still support "exit without save"
+    return {
+      getState: exportFn ? ()=>exportFn() : ()=>null,
+      importState: importFn ? (s)=>importFn(s) : null,
+      resetToNew: resetFn ? ()=>resetFn() : null,
+      getSessionSummary: ()=>{
+        try { return summaryFn() || {}; } catch(e){ console.error(e); return {}; }
+      },
+      isCompleted: completedFn ? ()=>{
+        try { return !!completedFn(); } catch(e){ console.error(e); return false; }
+      } : null,
     };
-    return gi;
   }
 
   let sessionId = null;
@@ -171,19 +220,21 @@
 
   async function ensureAuthed(){
     const token = PlatformApi.getToken();
+    const nextPath = location.pathname + location.search;
+
     if(!token){
-      const next = encodeURIComponent(location.pathname + location.search);
-      location.href = `/?next=${next}`;
+      location.href = menuHrefWithNext(nextPath);
       return false;
     }
+
     // quick check
     const me = await PlatformApi.meGet();
     if(!me || !me.ok){
-      const next = encodeURIComponent(location.pathname + location.search);
       PlatformApi.clearToken();
-      location.href = `/?next=${next}`;
+      location.href = menuHrefWithNext(nextPath);
       return false;
     }
+
     return true;
   }
 
@@ -206,22 +257,39 @@
   }
 
   async function saveNow(){
-    const payload = game.getState ? game.getState() : null;
-    if(!payload){
-      toast("Нечего сохранять (игра не экспортирует состояние).");
-      return;
+    let payload = null;
+
+    try{
+      payload = (game && game.getState) ? game.getState() : null;
+    } catch(e){
+      console.error(e);
+      toast("Ошибка экспорта состояния.");
+      return { ok: false, error: "export_failed" };
     }
-    const res = await PlatformApi.savePut(GAME_ID, payload);
-    if(res.ok){
-      toast("Сохранено.");
-      push("save_written", {});
-    } else {
+
+    if(payload === null || payload === undefined){
+      toast("Нечего сохранять (игра не экспортирует состояние).");
+      return { ok: false, error: "no_state" };
+    }
+
+    try{
+      const res = await PlatformApi.savePut(GAME_ID, payload);
+      if(res && res.ok){
+        toast("Сохранено.");
+        push("save_written", {});
+        return { ok: true };
+      }
       toast("Ошибка сохранения.");
+      return { ok: false, error: (res && res.error) || "save_failed" };
+    } catch(e){
+      console.error(e);
+      toast("Ошибка сохранения.");
+      return { ok: false, error: "network" };
     }
   }
 
   async function finish(reason){
-    if(finishing) return;
+    if(finishing) return { ok: false, error: "already_finishing" };
     finishing = true;
     try{
       push("session_end_intent", { reason });
@@ -230,20 +298,35 @@
       const events = Telemetry.slice(0, 4000); // защитный лимит
 
       if(sessionId){
-        await PlatformApi.sessionFinish(GAME_ID, sessionId, reason, summary, events);
+        try{
+          await PlatformApi.sessionFinish(GAME_ID, sessionId, reason, summary, events);
+        } catch(e){
+          console.error(e);
+        }
       }
+      return { ok: true };
     } finally {
       finishing = false;
     }
   }
 
   async function exitFlow(){
-    const wantSave = await confirmDialog("Выйти из игры? Сохранить перед выходом?", { okText: "Сохранить и выйти", cancelText: "Выйти без сохранения" });
-    if(wantSave){
-      await saveNow();
+    const wantSave = await confirmDialog("Выйти из игры? Сохранить перед выходом?", {
+      okText: "Сохранить и выйти",
+      cancelText: "Выйти без сохранения"
+    });
+
+    try{
+      if(wantSave){
+        await saveNow();
+      }
+      const reason = (game && game.isCompleted && game.isCompleted()) ? "finish" : "exit";
+      await finish(reason);
+    } catch(e){
+      console.error(e);
     }
-    await finish("exit");
-    location.href = "/";
+
+    location.href = MENU_URL;
   }
 
   async function boot(){
@@ -289,7 +372,21 @@
     window.Platform = {
       save: saveNow,
       exit: exitFlow,
-      finish: async (reason)=>{ await finish(reason || "completed"); },
+      finish: async (reason)=>{ await finish(reason || "finish"); },
+
+      // For games: finish session (+ optional save) and return to main menu
+      finishAndExit: async (reason)=>{
+        try{ await saveNow(); } catch(e){ console.error(e); }
+        try{ await finish(reason || "finish"); } catch(e){ console.error(e); }
+        location.href = MENU_URL;
+      },
+
+      // Just return to menu (no save)
+      toMenu: async (reason)=>{
+        try{ await finish(reason || "exit"); } catch(e){ console.error(e); }
+        location.href = MENU_URL;
+      },
+
       track: (type, data)=>push(type, data),
     };
   }

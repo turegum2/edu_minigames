@@ -1327,7 +1327,7 @@
       ly += 24;
     }
 
-    drawText("R — начать заново   T — теория", box.x + box.w/2, box.y + box.h - 25, {
+    drawText("R — начать заново   M — в меню   T — теория", box.x + box.w/2, box.y + box.h - 25, {
       align:"center", baseline:"middle",
       color: 'rgba(255,255,255,0.7)', fontsize: 14
     });
@@ -1649,6 +1649,20 @@
       return;
     }
 
+    // M — в меню
+    if (code === "KeyM"){
+      const P = window.Platform;
+      if (state === "final" && P && typeof P.finishAndExit === "function"){
+        P.finishAndExit("finish");
+      } else if (P && typeof P.exit === "function"){
+        P.exit();
+      } else {
+        location.href = "/";
+      }
+      return;
+    }
+
+
     if (state === "final"){
       if (code === "KeyR"){
         for (let i=0;i<stars_per_level.length;i++) stars_per_level[i] = 0;
@@ -1823,7 +1837,7 @@
   requestAnimationFrame(frame);
 
   window.GameInstance = {
-    exportState(){ return { v: 1, level_index, stars_per_level: Array.isArray(stars_per_level) ? stars_per_level.slice() : [] }; },
+    exportState(){ return { v: 1, level_index, completed: (state === "final"),stars_per_level: Array.isArray(stars_per_level) ? stars_per_level.slice() : [] }; },
     importState(s){
       if (!s || typeof s !== "object") return;
       if (Number.isInteger(s.level_index)) level_index = Math.max(0, Math.min(LEVELS.length-1, s.level_index));
@@ -1833,8 +1847,9 @@
         stars_per_level = stars_per_level.slice(0, LEVELS.length);
       }
       reset_level(true);
-      state = "tune";
+      state = (s && s.completed) ? "final" : "tune";
     },
+    isCompleted(){ return state === "final"; },
     getSessionSummary(){
       const by = Array.isArray(stars_per_level) ? stars_per_level.slice() : [];
       return {

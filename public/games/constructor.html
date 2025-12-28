@@ -777,7 +777,7 @@
       const got = stars_per_level[idx]; for (let s = 0; s < 3; s++) drawStar(cx - 24 + s * 24, cy + 12, 10, s < got); idx++; }}
     let comment = total >= LEVELS.length * 2.5 ? "Отлично! Ты настоящий химик!" : total >= LEVELS.length * 1.7 ? "Хорошая работа!" : "Неплохо! Повтори теорию (T)!";
     drawText(comment, box.x + box.w / 2, box.y + box.h - 70, { align: "center", baseline: "middle", color: COLORS.textWhite, fontsize: 16 });
-    drawText("R — заново   T — теория", box.x + box.w / 2, box.y + box.h - 30, { align: "center", baseline: "middle", color: 'rgba(255,255,255,0.6)', fontsize: 14 });
+    drawText("R — заново   M — в меню   T — теория", box.x + box.w / 2, box.y + box.h - 30, { align: "center", baseline: "middle", color: 'rgba(255,255,255,0.6)', fontsize: 14 });
   }
 
   // ========================== ГЛАВНЫЙ ЦИКЛ ==========================
@@ -846,6 +846,18 @@
     const code = e.code;
     if (["ArrowUp", "ArrowDown", "Space", "PageUp", "PageDown"].includes(code)) e.preventDefault();
     if (code === "KeyT"){ if (state === "theory"){ state = PREV_STATE || "play"; PREV_STATE = null; return; } if (["play", "win", "final", "intro"].includes(state)){ PREV_STATE = state; THEORY_SCROLL = 0; state = "theory"; return; }}
+    if (code === "KeyM"){
+      const P = window.Platform;
+      if (state === "final" && P && typeof P.finishAndExit === "function"){
+        P.finishAndExit("finish");
+      } else if (P && typeof P.exit === "function"){
+        P.exit();
+      } else {
+        location.href = "/";
+      }
+      return;
+    }
+
     if (state === "theory"){ if (code === "ArrowDown") THEORY_SCROLL = clamp(THEORY_SCROLL + 2, 0, 15); else if (code === "ArrowUp") THEORY_SCROLL = clamp(THEORY_SCROLL - 2, 0, 15); else if (code === "Escape" || code === "Backspace"){ state = PREV_STATE || "play"; PREV_STATE = null; } return; }
     if (state === "intro"){ if (code === "ArrowDown") INTRO_SCROLL = clamp(INTRO_SCROLL + 1, 0, 6); else if (code === "ArrowUp") INTRO_SCROLL = clamp(INTRO_SCROLL - 1, 0, 6); else if (code === "Space") reset_level(); return; }
     if (code === "KeyH" && (state === "play" || state === "win")){ show_hint = !show_hint; if (show_hint && !hint_used_this_level){ hint_used_this_level = true; moves_used += 1; } return; }
@@ -859,7 +871,7 @@
   requestAnimationFrame(loop);
 
   window.GameInstance = {
-    exportState(){ return { v: 1, level_index, stars_per_level: Array.isArray(stars_per_level) ? stars_per_level.slice() : [] }; },
+    exportState(){ return { v: 1, level_index, completed: (state === "final"),stars_per_level: Array.isArray(stars_per_level) ? stars_per_level.slice() : [] }; },
     importState(s){
       if (!s || typeof s !== "object") return;
       if (Number.isInteger(s.level_index)) level_index = Math.max(0, Math.min(LEVELS.length-1, s.level_index));
@@ -869,8 +881,9 @@
         stars_per_level = stars_per_level.slice(0, LEVELS.length);
       }
       reset_level();
-      state = "play";
+      state = (s && s.completed) ? "final" : "play";
     },
+    isCompleted(){ return state === "final"; },
     getSessionSummary(){
       const by = Array.isArray(stars_per_level) ? stars_per_level.slice() : [];
       return {
