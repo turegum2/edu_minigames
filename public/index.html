@@ -4,178 +4,549 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Учебные мини-игры</title>
+  <link rel="stylesheet" href="/assets/fonts/nunito/wght.css">
   <style>
-    :root{
-      --bg1:#0b1020; --bg2:#0b1a2a; --card:#111a2e; --muted:#93a4c7; --text:#e8eeff;
-      --accent:#5dd6ff; --good:#59f3a6; --bad:#ff6b6b; --line:rgba(255,255,255,.12);
-      --btn:#1b2a4b; --btn2:#163056;
-    }
-    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;color:var(--text);}
-    body{
-      background: radial-gradient(1000px 700px at 10% 10%, #17295a 0%, transparent 60%),
-                  radial-gradient(900px 600px at 90% 30%, #0f4a5f 0%, transparent 55%),
-                  linear-gradient(180deg, var(--bg1), var(--bg2));
-      display:grid; place-items:center; padding:18px; box-sizing:border-box;
-    }
-    .wrap{width:min(1100px,100%); display:grid; gap:14px;}
-    .top{display:flex; gap:12px; align-items:center; justify-content:space-between;}
-    .brand{display:flex; gap:10px; align-items:center;}
-    .logo{width:44px;height:44px;border-radius:14px;background:linear-gradient(135deg,#2dd4ff,#60ffa7); box-shadow:0 10px 40px rgba(0,0,0,.35);}
-    .title{font-size:18px;font-weight:750;letter-spacing:.2px;margin:0;}
-    .sub{margin:0;color:var(--muted); font-size:13px}
-    .card{
-      background:rgba(17,26,46,.78);
-      border:1px solid var(--line);
-      border-radius:18px;
-      box-shadow:0 18px 60px rgba(0,0,0,.35);
-      backdrop-filter: blur(10px);
-      overflow:hidden;
-    }
-    .card .hd{padding:14px 16px;border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:10px;}
-    .card .bd{padding:16px;}
-    .grid{display:grid; grid-template-columns: 1.1fr .9fr; gap:14px;}
-    @media (max-width: 900px){ .grid{grid-template-columns:1fr;} }
-
-    .row{display:flex; gap:10px; align-items:center;}
-    .pill{
-      font-size:12px; color:var(--muted); border:1px solid var(--line);
-      padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.04);
-      user-select:none;
+    :root {
+      --bg1: #1a1a2e;
+      --bg2: #16213e;
+      --bg3: #0f3460;
+      --card: rgba(15, 25, 45, 0.92);
+      --card-border: rgba(79, 172, 254, 0.3);
+      --card-glow: rgba(79, 172, 254, 0.1);
+      --muted: #90A4AE;
+      --text: #FFFFFF;
+      --text-secondary: #B0BEC5;
+      --accent: #4FC3F7;
+      --accent-glow: rgba(79, 172, 254, 0.4);
+      --good: #81C784;
+      --good-glow: rgba(129, 199, 132, 0.3);
+      --bad: #EF5350;
+      --gold: #FFD54F;
+      --line: rgba(255,255,255,0.1);
+      --btn-primary: linear-gradient(180deg, rgba(79, 172, 254, 0.25), rgba(79, 172, 254, 0.08));
+      --btn-primary-border: rgba(79, 172, 254, 0.5);
+      --btn-secondary: rgba(255,255,255,0.06);
+      --btn-secondary-border: rgba(255,255,255,0.15);
     }
 
-    input,button{
-      font:inherit; border-radius:12px; border:1px solid var(--line);
-      padding:10px 12px; background:rgba(255,255,255,.04); color:var(--text);
-      outline:none;
+    * {
+      box-sizing: border-box;
     }
-    input{width:100%}
-    button{
-      background:linear-gradient(180deg, rgba(93,214,255,.20), rgba(93,214,255,.06));
-      cursor:pointer; border:1px solid rgba(93,214,255,.38);
-    }
-    button.secondary{
-      background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
-      border:1px solid var(--line);
-    }
-    button:disabled{opacity:.55; cursor:not-allowed}
-    .muted{color:var(--muted); font-size:13px; line-height:1.4}
-    .err{color:var(--bad); font-size:13px}
-    .ok{color:var(--good); font-size:13px}
 
-    .games{display:grid; gap:10px;}
-    .game{
-      border:1px solid var(--line);
-      background:rgba(255,255,255,.03);
-      border-radius:14px;
-      padding:12px;
-      display:grid;
-      grid-template-columns: 1fr auto;
-      gap:10px;
-      align-items:center;
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: "Nunito Variable", system-ui, -apple-system, sans-serif;
+      color: var(--text);
     }
-    .gname{font-weight:700}
-    .gmeta{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end}
-    .stars{letter-spacing:.5px}
-    .actions{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end}
-    .small{padding:8px 10px; border-radius:12px; font-size:13px;}
-    .sep{height:1px;background:var(--line); margin:12px 0;}
+
+    body {
+      background: linear-gradient(135deg, var(--bg1) 0%, var(--bg2) 50%, var(--bg3) 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px;
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    /* Декоративные световые пятна */
+    body::before,
+    body::after {
+      content: '';
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(80px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    body::before {
+      width: 500px;
+      height: 500px;
+      background: rgba(79, 172, 254, 0.08);
+      top: -100px;
+      left: -100px;
+    }
+
+    body::after {
+      width: 400px;
+      height: 400px;
+      background: rgba(129, 199, 132, 0.06);
+      bottom: -50px;
+      right: -50px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 600px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Шапка */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .logo {
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #4FC3F7 0%, #81C784 100%);
+      box-shadow: 
+        0 8px 32px rgba(79, 172, 254, 0.3),
+        0 0 20px rgba(129, 199, 132, 0.2);
+      flex-shrink: 0;
+    }
+
+    .header-text {
+      flex: 1;
+    }
+
+    .title {
+      font-size: 24px;
+      font-weight: 800;
+      margin: 0;
+      letter-spacing: 0.3px;
+      background: linear-gradient(90deg, #FFFFFF, #B0BEC5);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* Карточки */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      box-shadow: 
+        0 20px 60px rgba(0, 0, 0, 0.4),
+        0 0 40px var(--card-glow),
+        inset 0 1px 0 rgba(255,255,255,0.05);
+      backdrop-filter: blur(20px);
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+
+    .card-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .card-header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .card-body {
+      padding: 20px;
+    }
+
+    /* Пилюли/бейджи */
+    .pill {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      border: 1px solid var(--line);
+      padding: 5px 10px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.04);
+      user-select: none;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .pill.accent {
+      color: var(--accent);
+      border-color: var(--accent-glow);
+      background: rgba(79, 172, 254, 0.1);
+    }
+
+    .pill.success {
+      color: var(--good);
+      border-color: var(--good-glow);
+      background: rgba(129, 199, 132, 0.1);
+    }
+
+    /* Формы */
+    .form-hint {
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.5;
+      margin-bottom: 16px;
+    }
+
+    .form-row {
+      display: flex;
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    input {
+      flex: 1;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 500;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      padding: 12px 16px;
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    input::placeholder {
+      color: var(--muted);
+    }
+
+    input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.15);
+      background: rgba(255,255,255,0.08);
+    }
+
+    button {
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      border-radius: 12px;
+      border: 1px solid var(--btn-primary-border);
+      padding: 12px 20px;
+      background: var(--btn-primary);
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+
+    button:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(79, 172, 254, 0.3);
+    }
+
+    button:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      background: var(--btn-secondary);
+      border-color: var(--btn-secondary-border);
+    }
+
+    button.secondary:hover:not(:disabled) {
+      background: rgba(255,255,255,0.1);
+      box-shadow: 0 4px 20px rgba(255, 255, 255, 0.1);
+    }
+
+    button.logout {
+      font-size: 13px;
+      padding: 8px 16px;
+      background: rgba(239, 83, 80, 0.1);
+      border-color: rgba(239, 83, 80, 0.3);
+      color: #EF5350;
+    }
+
+    button.logout:hover:not(:disabled) {
+      background: rgba(239, 83, 80, 0.2);
+      box-shadow: 0 4px 20px rgba(239, 83, 80, 0.2);
+    }
+
+    .msg {
+      font-size: 13px;
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      display: none;
+    }
+
+    .msg.error {
+      color: #EF5350;
+      background: rgba(239, 83, 80, 0.1);
+      border: 1px solid rgba(239, 83, 80, 0.2);
+      display: block;
+    }
+
+    .msg.success {
+      color: var(--good);
+      background: rgba(129, 199, 132, 0.1);
+      border: 1px solid rgba(129, 199, 132, 0.2);
+      display: block;
+    }
+
+    .msg:empty {
+      display: none;
+    }
+
+    .debug-hint {
+      font-size: 12px;
+      color: var(--gold);
+      background: rgba(255, 213, 79, 0.1);
+      border: 1px solid rgba(255, 213, 79, 0.2);
+      padding: 8px 12px;
+      border-radius: 8px;
+      margin-top: 12px;
+    }
+
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+      margin-top: 12px;
+      cursor: pointer;
+      transition: color 0.2s;
+    }
+
+    .back-link:hover {
+      color: var(--text);
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--line);
+      margin: 20px 0;
+    }
+
+    .hint-text {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .hint-text code {
+      background: rgba(255,255,255,0.08);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+    }
+
+    /* Список игр */
+    .games-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .game-item {
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.03);
+      border-radius: 14px;
+      padding: 16px;
+      transition: all 0.2s ease;
+    }
+
+    .game-item:hover {
+      border-color: var(--card-border);
+      background: rgba(255,255,255,0.05);
+    }
+
+    .game-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .game-name {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .game-stats {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .game-stat {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .game-stat span {
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .game-stat.has-save {
+      color: var(--good);
+    }
+
+    .game-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .game-actions button {
+      font-size: 13px;
+      padding: 10px 16px;
+    }
+
+    /* Кнопка выхода в header кабинета */
+    .cabinet-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* Анимации */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .card {
+      animation: fadeIn 0.4s ease;
+    }
+
+    /* Адаптивность */
+    @media (max-width: 500px) {
+      body {
+        padding: 16px;
+      }
+
+      .title {
+        font-size: 20px;
+      }
+
+      .form-row {
+        flex-direction: column;
+      }
+
+      button {
+        width: 100%;
+      }
+
+      .game-actions {
+        flex-direction: column;
+      }
+
+      .game-actions button {
+        width: 100%;
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="top">
-      <div class="brand">
-        <div class="logo"></div>
-        <div>
-          <p class="title">Учебные мини-игры</p>
-          <p class="sub">Авторизация по SMS • сохранения • статистика</p>
-        </div>
-      </div>
-      <div class="row">
-        <span class="pill" id="envPill">локально</span>
-        <button class="secondary" id="logoutBtn" style="display:none;">Выйти</button>
+  <div class="container">
+    <!-- Шапка -->
+    <div class="header">
+      <div class="logo"></div>
+      <div class="header-text">
+        <h1 class="title">Учебные мини-игры</h1>
       </div>
     </div>
 
-    <div class="grid">
-      <div class="card" id="authCard">
-        <div class="hd">
-          <div class="row">
-            <strong>Вход</strong>
-            <span class="pill">SMS</span>
-          </div>
-          <span class="pill" id="authStatePill">не авторизован</span>
+    <!-- Карточка авторизации -->
+    <div class="card" id="authCard">
+      <div class="card-header">
+        <div class="card-header-left">
+          <h2 class="card-title">Вход</h2>
+          <span class="pill accent">SMS</span>
         </div>
-        <div class="bd">
-          <div id="authStepChecking" style="display:none;">
-            <div class="muted">Проверяем сессию…</div>
-          </div>
+        <span class="pill" id="authStatePill">не авторизован</span>
+      </div>
+      <div class="card-body">
+        <!-- Проверка сессии -->
+        <div id="authStepChecking" style="display:none;">
+          <div class="form-hint">Проверяем сессию…</div>
+        </div>
 
-          <div id="authStepPhone">
-            <div class="muted">Введите номер телефона. На него придёт код подтверждения.</div>
-            <div style="height:10px"></div>
-            <div class="row">
-              <input id="phoneInput" placeholder="+7XXXXXXXXXX" autocomplete="tel" />
-              <button id="sendCodeBtn">Получить код</button>
-            </div>
-            <div style="height:8px"></div>
-            <div class="muted" id="debugCodeHint" style="display:none;"></div>
-            <div class="err" id="phoneErr"></div>
+        <!-- Ввод телефона -->
+        <div id="authStepPhone">
+          <div class="form-hint">Введите номер телефона. На него придёт код подтверждения.</div>
+          <div class="form-row">
+            <input id="phoneInput" placeholder="+7XXXXXXXXXX" autocomplete="tel" />
+            <button id="sendCodeBtn">Получить код</button>
           </div>
+          <div class="debug-hint" id="debugCodeHint" style="display:none;"></div>
+          <div class="msg error" id="phoneErr"></div>
+        </div>
 
-          <div id="authStepCode" style="display:none;">
-            <div class="muted">Введите код из SMS.</div>
-            <div style="height:10px"></div>
-            <div class="row">
-              <input id="codeInput" placeholder="0000" autocomplete="one-time-code" />
-              <button id="verifyBtn">Подтвердить</button>
-            </div>
-            <div style="height:8px"></div>
-            <button class="secondary" id="backBtn">← Назад</button>
-            <div class="err" id="codeErr"></div>
+        <!-- Ввод кода -->
+        <div id="authStepCode" style="display:none;">
+          <div class="form-hint">Введите код из SMS.</div>
+          <div class="form-row">
+            <input id="codeInput" placeholder="0000" autocomplete="one-time-code" />
+            <button id="verifyBtn">Подтвердить</button>
           </div>
+          <div class="back-link" id="backBtn">← Назад</div>
+          <div class="msg error" id="codeErr"></div>
+        </div>
 
-          <div id="profileStep" style="display:none;">
-            <div class="muted">Первый вход: укажите имя (можно позже изменить).</div>
-            <div style="height:10px"></div>
-            <div class="row">
-              <input id="nameInput" placeholder="Имя" autocomplete="name" />
-              <button id="saveNameBtn">Сохранить</button>
-            </div>
-            <div style="height:8px"></div>
-            <div class="ok" id="nameOk"></div>
-            <div class="err" id="nameErr"></div>
+        <!-- Ввод имени -->
+        <div id="profileStep" style="display:none;">
+          <div class="form-hint">Первый вход: укажите имя (можно позже изменить).</div>
+          <div class="form-row">
+            <input id="nameInput" placeholder="Ваше имя" autocomplete="name" />
+            <button id="saveNameBtn">Сохранить</button>
           </div>
+          <div class="msg success" id="nameOk"></div>
+          <div class="msg error" id="nameErr"></div>
+        </div>
 
-          <div class="sep"></div>
-          <div class="muted">
-            Подсказка: игры работают по URL <code>/games/&lt;id&gt;.html?mode=new|load</code>. Платформа добавляет «Сохранить/Выйти» прямо в игре.
-          </div>
+
+      </div>
+    </div>
+
+    <!-- Карточка личного кабинета -->
+    <div class="card" id="cabCard" style="display:none;">
+      <div class="card-header cabinet-header">
+        <div class="card-header-left">
+          <h2 class="card-title">Личный кабинет</h2>
+          <span class="pill success" id="helloPill"></span>
+        </div>
+        <div class="user-info">
+          <span class="pill" id="userPill"></span>
+          <button class="logout" id="logoutBtn">Выйти</button>
         </div>
       </div>
-
-      <div class="card" id="cabCard" style="display:none;">
-        <div class="hd">
-          <div class="row">
-            <strong>Личный кабинет</strong>
-            <span class="pill" id="helloPill"></span>
-          </div>
-          <span class="pill" id="userPill"></span>
-        </div>
-        <div class="bd">
-          <div class="games" id="gamesList"></div>
-        </div>
+      <div class="card-body">
+        <div class="games-list" id="gamesList"></div>
       </div>
     </div>
   </div>
 
-  <script src="/platform/client.js?v=20251228_04"></script>
+  <script src="/platform/client.js?v=20251228_05"></script>
   <script>
-    // Fixed script: v20251228_04
-    const PLATFORM_ASSET_VER = "20251228_04";
+    // Fixed script: v20251228_05
+    const PLATFORM_ASSET_VER = "20251228_05";
 
-    const $ = (id)=>document.getElementById(id);
-    const envPill = $("envPill");
+    const $ = (id) => document.getElementById(id);
     const authCard = $("authCard");
     const cabCard = $("cabCard");
     const logoutBtn = $("logoutBtn");
@@ -206,6 +577,15 @@
 
     const nextUrl = new URL(location.href).searchParams.get("next");
 
+    // Маппинг ID игр на русские названия
+    const GAME_TITLES = {
+      parabola: "Парабола: попади в цель",
+      balancer: "Балансир: моменты сил",
+      graph_master: "График мастер",
+      chemical_detective: "Химический детектив",
+      constructor: "Молекулярный конструктор"
+    };
+
     const GAME_MAX_STARS = {
       parabola: 18,
       balancer: 36,
@@ -214,19 +594,34 @@
       constructor: 36,
     };
 
-    function fmtScore(stars, gameId){
+    // Дружественные сообщения об ошибках
+    const ERROR_MESSAGES = {
+      code_invalid: "Неверный код. Проверьте и попробуйте снова.",
+      expired: "Код истёк. Запросите новый код.",
+      too_many_attempts: "Слишком много попыток. Попробуйте позже.",
+      network_error: "Ошибка сети. Проверьте подключение.",
+      unauthorized: "Сессия истекла. Войдите снова."
+    };
+
+    function friendlyError(err) {
+      if (!err) return "Произошла ошибка.";
+      const key = String(err).toLowerCase().replace(/\s+/g, '_');
+      return ERROR_MESSAGES[key] || ERROR_MESSAGES[err] || err;
+    }
+
+    function fmtScore(stars, gameId) {
       const x = Math.max(0, Number.isFinite(stars) ? stars : 0);
       const max = GAME_MAX_STARS[gameId];
       return (typeof max === "number" && max > 0) ? `${x}/${max}` : String(x);
     }
 
-    function showStep(step){
+    function showStep(step) {
       // step: checking | phone | code | profile | hidden
-      authCard.style.display = (step==="hidden") ? "none" : "";
-      authStepChecking.style.display = (step==="checking") ? "" : "none";
-      authStepPhone.style.display = (step==="phone") ? "" : "none";
-      authStepCode.style.display  = (step==="code")  ? "" : "none";
-      profileStep.style.display   = (step==="profile") ? "" : "none";
+      authCard.style.display = (step === "hidden") ? "none" : "";
+      authStepChecking.style.display = (step === "checking") ? "" : "none";
+      authStepPhone.style.display = (step === "phone") ? "" : "none";
+      authStepCode.style.display = (step === "code") ? "" : "none";
+      profileStep.style.display = (step === "profile") ? "" : "none";
 
       phoneErr.textContent = "";
       codeErr.textContent = "";
@@ -235,64 +630,65 @@
       debugCodeHint.style.display = "none";
     }
 
-    function setAuthedUI(me){
+    function setAuthedUI(me) {
       authStatePill.textContent = "авторизован";
-      logoutBtn.style.display = "";
+      authStatePill.classList.add("success");
       cabCard.style.display = "";
       helloPill.textContent = me.name ? `Привет, ${me.name}` : `Привет!`;
       userPill.textContent = me.phone || "";
       renderGames(me.games || []);
     }
 
-    function setAnonUI(){
+    function setAnonUI() {
       authStatePill.textContent = "не авторизован";
-      logoutBtn.style.display = "none";
+      authStatePill.classList.remove("success");
       cabCard.style.display = "none";
       showStep("phone");
     }
 
-    function renderGames(games){
+    function renderGames(games) {
       gamesList.innerHTML = "";
-      for(const g of games){
+      for (const g of games) {
+        // Используем русское название из маппинга или оригинальное
+        const displayTitle = GAME_TITLES[g.game_id] || g.title;
+        
         const wrap = document.createElement("div");
-        wrap.className = "game";
+        wrap.className = "game-item";
         wrap.innerHTML = `
-          <div>
-            <div class="gname">${g.title}</div>
-            <div class="muted" style="margin-top:4px;">
-              Последний: <span class="stars">${fmtScore(g.last_stars||0, g.game_id)}</span>
-              &nbsp;•&nbsp; Рекорд: <span class="stars">${fmtScore(g.best_stars||0, g.game_id)}</span>
-              ${g.has_save ? "&nbsp;•&nbsp; Есть сохранение" : ""}
-            </div>
+          <div class="game-header">
+            <div class="game-name">${displayTitle}</div>
           </div>
-          <div class="actions">
-            <button class="small" data-act="new" data-id="${g.game_id}">Играть заново</button>
-            <button class="small secondary" data-act="load" data-id="${g.game_id}" ${g.has_save ? "" : "disabled"}>Загрузить</button>
+          <div class="game-stats">
+            <div class="game-stat">Последний: <span>${fmtScore(g.last_stars || 0, g.game_id)}</span></div>
+            <div class="game-stat">Рекорд: <span>${fmtScore(g.best_stars || 0, g.game_id)}</span></div>
+            ${g.has_save ? '<div class="game-stat has-save">✓ Есть сохранение</div>' : ''}
+          </div>
+          <div class="game-actions">
+            <button data-act="new" data-id="${g.game_id}">Играть заново</button>
+            <button class="secondary" data-act="load" data-id="${g.game_id}" ${g.has_save ? "" : "disabled"}>Загрузить</button>
           </div>
         `;
-        wrap.addEventListener("click", (e)=>{
+        wrap.addEventListener("click", (e) => {
           const btn = e.target.closest("button");
-          if(!btn) return;
+          if (!btn) return;
           const gameId = btn.getAttribute("data-id");
           const act = btn.getAttribute("data-act");
-          const url = `/games/${gameId}.html?mode=${act==="load" ? "load" : "new"}&v=${encodeURIComponent(PLATFORM_ASSET_VER)}`;
+          const url = `/games/${gameId}.html?mode=${act === "load" ? "load" : "new"}&v=${encodeURIComponent(PLATFORM_ASSET_VER)}`;
           location.href = url;
         });
         gamesList.appendChild(wrap);
       }
     }
 
-    async function refreshMe(){
-      if(!window.PlatformApi) return { ok:false, error:"PlatformApi_not_loaded" };
+    async function refreshMe() {
+      if (!window.PlatformApi) return { ok: false, error: "PlatformApi_not_loaded" };
       const me = await PlatformApi.meGet();
-      return me || { ok:false, error:"no_response" };
+      return me || { ok: false, error: "no_response" };
     }
 
-    async function boot(){
-      envPill.textContent = (location.host.includes("localhost") || location.host.includes("127.0.0.1")) ? "локально" : "облако";
-
-      if(!window.PlatformApi){
-        phoneErr.textContent = "Ошибка: не загружен /platform/client.js (PlatformApi отсутствует).";
+    async function boot() {
+      if (!window.PlatformApi) {
+        phoneErr.textContent = "Ошибка: не загружен /platform/client.js";
         showStep("phone");
         return;
       }
@@ -301,60 +697,63 @@
       showStep(hasToken ? "checking" : "phone");
 
       const me = await refreshMe();
-      if(me && me.ok){
+      if (me && me.ok) {
         setAuthedUI(me.user);
 
-        if(!me.user?.name){
+        if (!me.user?.name) {
           showStep("profile");
           return;
         }
 
         showStep("hidden");
 
-        if(nextUrl){
-          try{
+        if (nextUrl) {
+          try {
             const u = new URL(nextUrl, location.origin);
-            if(u.origin === location.origin) location.href = u.pathname + u.search;
-          }catch(_ ){}
+            if (u.origin === location.origin) location.href = u.pathname + u.search;
+          } catch (_) {}
         }
         return;
       }
 
-      if(hasToken){
+      if (hasToken) {
         const err = String(me?.error || "");
         const isUnauth = (err === "unauthorized") || err.includes("401");
-        if(isUnauth) PlatformApi.clearToken();
+        if (isUnauth) PlatformApi.clearToken();
       }
 
       setAnonUI();
     }
 
-    sendCodeBtn.addEventListener("click", async ()=>{
+    sendCodeBtn.addEventListener("click", async () => {
       phoneErr.textContent = "";
       debugCodeHint.style.display = "none";
 
-      if(!window.PlatformApi){
+      if (!window.PlatformApi) {
         phoneErr.textContent = "Ошибка: PlatformApi не загружен.";
         return;
       }
 
       const phone = phoneInput.value.trim();
-      if(!phone) { phoneErr.textContent="Введите номер телефона."; return; }
+      if (!phone) {
+        phoneErr.textContent = "Введите номер телефона.";
+        return;
+      }
 
       sendCodeBtn.disabled = true;
-      try{
+      try {
         const res = await PlatformApi.authStart(phone);
-        if(!res?.ok){
-          phoneErr.textContent = res?.error || "Не удалось отправить код.";
+        if (!res?.ok) {
+          phoneErr.textContent = friendlyError(res?.error) || "Не удалось отправить код.";
           return;
         }
-        if(res.debug_code){
+        if (res.debug_code) {
           debugCodeHint.style.display = "";
-          debugCodeHint.textContent = `Локальный режим: код = ${res.debug_code}`;
+          debugCodeHint.textContent = `🔧 Локальный режим: код = ${res.debug_code}`;
         }
         showStep("code");
         codeInput.focus();
-      } catch(e) {
+      } catch (e) {
         console.error(e);
         phoneErr.textContent = "Ошибка сети при запросе кода.";
       } finally {
@@ -362,41 +761,47 @@
       }
     });
 
-    backBtn.addEventListener("click", ()=> showStep("phone"));
+    backBtn.addEventListener("click", () => showStep("phone"));
 
-    verifyBtn.addEventListener("click", async ()=>{
+    verifyBtn.addEventListener("click", async () => {
       codeErr.textContent = "";
       const phone = phoneInput.value.trim();
       const code = codeInput.value.trim();
-      if(!code){ codeErr.textContent="Введите код."; return; }
+      if (!code) {
+        codeErr.textContent = "Введите код.";
+        return;
+      }
 
       verifyBtn.disabled = true;
-      try{
+      try {
         const res = await PlatformApi.authVerify(phone, code);
-        if(!res?.ok){
-          codeErr.textContent = res?.error || "Неверный код.";
+        if (!res?.ok) {
+          codeErr.textContent = friendlyError(res?.error);
           return;
         }
         PlatformApi.setToken(res.token);
 
         const me = await refreshMe();
-        if(!me || !me.ok){ codeErr.textContent="Не удалось получить профиль."; return; }
+        if (!me || !me.ok) {
+          codeErr.textContent = "Не удалось получить профиль.";
+          return;
+        }
 
         setAuthedUI(me.user);
 
-        if(!me.user?.name){
+        if (!me.user?.name) {
           showStep("profile");
           nameInput.focus();
         } else {
           showStep("hidden");
-          if(nextUrl){
-            try{
+          if (nextUrl) {
+            try {
               const u = new URL(nextUrl, location.origin);
-              if(u.origin === location.origin) location.href = u.pathname + u.search;
-            }catch(_ ){}
+              if (u.origin === location.origin) location.href = u.pathname + u.search;
+            } catch (_) {}
           }
         }
-      } catch(e){
+      } catch (e) {
         console.error(e);
         codeErr.textContent = "Ошибка сети при проверке кода.";
       } finally {
@@ -404,22 +809,29 @@
       }
     });
 
-    saveNameBtn.addEventListener("click", async ()=>{
-      nameErr.textContent=""; nameOk.textContent="";
+    saveNameBtn.addEventListener("click", async () => {
+      nameErr.textContent = "";
+      nameOk.textContent = "";
       const name = nameInput.value.trim();
-      if(!name){ nameErr.textContent="Введите имя."; return; }
+      if (!name) {
+        nameErr.textContent = "Введите имя.";
+        return;
+      }
 
       saveNameBtn.disabled = true;
-      try{
+      try {
         const res = await PlatformApi.meSetName(name);
-        if(!res?.ok){ nameErr.textContent = res?.error || "Не удалось сохранить имя."; return; }
-        nameOk.textContent = "Сохранено.";
-        const me = await refreshMe();
-        if(me && me.ok){
-          setAuthedUI(me.user);
-          if(me.user?.name) showStep("hidden");
+        if (!res?.ok) {
+          nameErr.textContent = friendlyError(res?.error) || "Не удалось сохранить имя.";
+          return;
         }
-      } catch(e){
+        nameOk.textContent = "✓ Сохранено!";
+        const me = await refreshMe();
+        if (me && me.ok) {
+          setAuthedUI(me.user);
+          if (me.user?.name) showStep("hidden");
+        }
+      } catch (e) {
         console.error(e);
         nameErr.textContent = "Ошибка сети при сохранении имени.";
       } finally {
@@ -427,9 +839,22 @@
       }
     });
 
-    logoutBtn.addEventListener("click", ()=>{
+    logoutBtn.addEventListener("click", () => {
       PlatformApi.clearToken();
       location.href = "/";
+    });
+
+    // Обработка Enter в полях ввода
+    phoneInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") sendCodeBtn.click();
+    });
+
+    codeInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") verifyBtn.click();
+    });
+
+    nameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") saveNameBtn.click();
     });
 
     boot();
