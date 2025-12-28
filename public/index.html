@@ -580,22 +580,33 @@
       return String(s || "").replace(/\D/g, "");
     }
     function ruNational10FromAny(raw) {
-      const digits = ruOnlyDigits(raw);
-      // accept +7XXXXXXXXXX / 7XXXXXXXXXX / 8XXXXXXXXXX / XXXXXXXXXX
-      if (digits.length >= 11 && (digits.startsWith("7") || digits.startsWith("8"))) {
-        return digits.slice(1, 11);
+      const str = String(raw || "").trim();
+      const digits = ruOnlyDigits(str);
+      // If input already has +7 prefix, treat the first '7' as country code, not user digits
+      if (str.startsWith("+7")) {
+        return digits.slice(1).slice(0, 10); // remove country code
       }
+      // accept 7XXXXXXXXXX / 8XXXXXXXXXX (11 digits)
+      if (digits.length === 11 && (digits.startsWith("7") || digits.startsWith("8"))) {
+        return digits.slice(1);
+      }
+      // accept XXXXXXXXXX
       if (digits.length >= 10) return digits.slice(0, 10);
       return digits;
     }
     function ruFormatPhone(raw) {
       return "+7" + ruNational10FromAny(raw);
     }
-    function caretToEnd(el) {
+    function setCaret(el, pos) {
       try {
-        const n = el.value.length;
-        el.setSelectionRange(n, n);
+        el.setSelectionRange(pos, pos);
       } catch (_) {}
+    }
+    function caretToEnd(el) {
+      setCaret(el, el.value.length);
+    }
+    function caretAfterPrefix(el) {
+      setCaret(el, Math.min(Math.max(2, 2), el.value.length));
     }
     function enforceRuPhone() {
       const formatted = ruFormatPhone(phoneInput.value);
@@ -607,7 +618,7 @@
       // prevent caret inside "+7"
       const ss = phoneInput.selectionStart ?? 0;
       const se = phoneInput.selectionEnd ?? 0;
-      if (ss < 2 || se < 2) caretToEnd(phoneInput);
+      if (ss < 2 || se < 2) caretAfterPrefix(phoneInput);
     }
     function isValidRuPhone(phone) {
       return /^\+7\d{10}$/.test(phone);
@@ -615,11 +626,12 @@
 
     // init
     enforceRuPhone();
-    phoneInput.addEventListener("input", () => { enforceRuPhone(); caretToEnd(phoneInput); });
-    phoneInput.addEventListener("focus", () => { enforceRuPhone(); caretToEnd(phoneInput); });
+    // Do NOT force caret to end on each input — digits after +7 must be editable
+    phoneInput.addEventListener("input", () => { enforceRuPhone(); });
+    phoneInput.addEventListener("focus", () => { enforceRuPhone(); });
     phoneInput.addEventListener("click", () => {
       const ss = phoneInput.selectionStart ?? 0;
-      if (ss < 2) caretToEnd(phoneInput);
+      if (ss < 2) caretAfterPrefix(phoneInput);
     });
     phoneInput.addEventListener("paste", (e) => {
       // normalize pasted content
@@ -633,17 +645,33 @@
       const ss = phoneInput.selectionStart ?? 0;
       const se = phoneInput.selectionEnd ?? 0;
 
-      // prevent deleting/changing "+7"
-      if ((e.key === "Backspace" || e.key === "Delete") && ss <= 2 && se <= 2) {
+      // Protect "+7" prefix:
+      // - Backspace at pos<=2 must not delete prefix
+      if (e.key === "Backspace" && ss <= 2 && se <= 2) {
         e.preventDefault();
-        caretToEnd(phoneInput);
+        caretAfterPrefix(phoneInput);
+        return;
+      }
+      // - Delete only forbidden if caret is INSIDE prefix (<2). At pos==2 Delete must remove first user digit (allowed)
+      if (e.key === "Delete" && ss < 2 && se < 2) {
+        e.preventDefault();
+        caretAfterPrefix(phoneInput);
+        return;
+      }
+      // - If selection touches prefix and user tries to delete — delete only digits after prefix
+      if ((e.key === "Backspace" || e.key === "Delete") && ss < 2 && se > 2) {
+        e.preventDefault();
+        const keep = phoneInput.value.slice(se);
+        phoneInput.value = "+7" + keep.replace(/\D/g, "").slice(0, 10);
+        enforceRuPhone();
+        caretAfterPrefix(phoneInput);
         return;
       }
 
       // if user tries to type before prefix - push caret
       if (ss < 2 && e.key && e.key.length === 1) {
         e.preventDefault();
-        caretToEnd(phoneInput);
+        caretAfterPrefix(phoneInput);
         return;
       }
 
@@ -653,12 +681,9 @@
           e.preventDefault();
           return;
         }
-        // prevent more than 10 digits after +7
-        const national = ruNational10FromAny(phoneInput.value);
-        const selLen = Math.max(0, (se - ss));
-        const atEndDigitsCount = national.length;
-        const maxDigits = 10;
-        if (atEndDigitsCount >= maxDigits && selLen === 0) {
+        // prevent more than 10 digits total after "+7"
+        const selLen = Math.max(0, se - ss);
+        if (phoneInput.value.length >= 12 && selLen === 0) {
           e.preventDefault();
           return;
         }
