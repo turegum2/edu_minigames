@@ -169,9 +169,11 @@
     </div>
   </div>
 
-  <script src="/platform/client.js"></script>
+  <script src="/platform/client.js?v=20251228_04"></script>
   <script>
-    // ---------- UI helpers ----------
+    // Fixed script: v20251228_04
+    const PLATFORM_ASSET_VER = "20251228_04";
+
     const $ = (id)=>document.getElementById(id);
     const envPill = $("envPill");
     const authCard = $("authCard");
@@ -204,7 +206,6 @@
 
     const nextUrl = new URL(location.href).searchParams.get("next");
 
-
     const GAME_MAX_STARS = {
       parabola: 18,
       balancer: 36,
@@ -218,7 +219,6 @@
       const max = GAME_MAX_STARS[gameId];
       return (typeof max === "number" && max > 0) ? `${x}/${max}` : String(x);
     }
-
 
     function showStep(step){
       // step: checking | phone | code | profile | hidden
@@ -240,7 +240,7 @@
       logoutBtn.style.display = "";
       cabCard.style.display = "";
       helloPill.textContent = me.name ? `Привет, ${me.name}` : `Привет!`;
-      userPill.textContent = me.phone;
+      userPill.textContent = me.phone || "";
       renderGames(me.games || []);
     }
 
@@ -275,15 +275,15 @@
           if(!btn) return;
           const gameId = btn.getAttribute("data-id");
           const act = btn.getAttribute("data-act");
-          const url = `/games/${gameId}.html?mode=${act==="load" ? "load" : "new"}`;
+          const url = `/games/${gameId}.html?mode=${act==="load" ? "load" : "new"}&v=${encodeURIComponent(PLATFORM_ASSET_VER)}`;
           location.href = url;
         });
         gamesList.appendChild(wrap);
       }
     }
 
-    // ---------- Auth flow ----------
     async function refreshMe(){
+      if(!window.PlatformApi) return { ok:false, error:"PlatformApi_not_loaded" };
       const me = await PlatformApi.meGet();
       return me || { ok:false, error:"no_response" };
     }
@@ -291,13 +291,17 @@
     async function boot(){
       envPill.textContent = (location.host.includes("localhost") || location.host.includes("127.0.0.1")) ? "локально" : "облако";
 
+      if(!window.PlatformApi){
+        phoneErr.textContent = "Ошибка: не загружен /platform/client.js (PlatformApi отсутствует).";
+        showStep("phone");
+        return;
+      }
+
       const hasToken = !!PlatformApi.getToken();
-      if(hasToken) showStep("checking");
-      else showStep("phone");
+      showStep(hasToken ? "checking" : "phone");
 
       const me = await refreshMe();
       if(me && me.ok){
-        // если имя отсутствует — попросим имя
         setAuthedUI(me.user);
 
         if(!me.user?.name){
@@ -305,19 +309,17 @@
           return;
         }
 
-        // штатный режим: скрываем карточку входа
         showStep("hidden");
 
         if(nextUrl){
           try{
             const u = new URL(nextUrl, location.origin);
             if(u.origin === location.origin) location.href = u.pathname + u.search;
-          }catch(_){}
+          }catch(_ ){}
         }
         return;
       }
 
-      // token есть, но /api/me не ответил/ошибка — не разлогиниваем, кроме явного 401
       if(hasToken){
         const err = String(me?.error || "");
         const isUnauth = (err === "unauthorized") || err.includes("401");
@@ -326,51 +328,57 @@
 
       setAnonUI();
     }
-        }
-      } else {
-        setAnonUI();
-      }
-    }
 
-    sendCodeBtn.onclick = async ()=>{
+    sendCodeBtn.addEventListener("click", async ()=>{
       phoneErr.textContent = "";
       debugCodeHint.style.display = "none";
+
+      if(!window.PlatformApi){
+        phoneErr.textContent = "Ошибка: PlatformApi не загружен.";
+        return;
+      }
+
       const phone = phoneInput.value.trim();
       if(!phone) { phoneErr.textContent="Введите номер телефона."; return; }
+
       sendCodeBtn.disabled = true;
       try{
         const res = await PlatformApi.authStart(phone);
-        if(!res.ok){
-          phoneErr.textContent = res.error || "Не удалось отправить код.";
+        if(!res?.ok){
+          phoneErr.textContent = res?.error || "Не удалось отправить код.";
           return;
         }
-        // локальный dev сервер может вернуть debug_code
         if(res.debug_code){
           debugCodeHint.style.display = "";
           debugCodeHint.textContent = `Локальный режим: код = ${res.debug_code}`;
         }
         showStep("code");
         codeInput.focus();
+      } catch(e) {
+        console.error(e);
+        phoneErr.textContent = "Ошибка сети при запросе кода.";
       } finally {
         sendCodeBtn.disabled = false;
       }
-    };
+    });
 
-    backBtn.onclick = ()=> showStep("phone");
+    backBtn.addEventListener("click", ()=> showStep("phone"));
 
-    verifyBtn.onclick = async ()=>{
+    verifyBtn.addEventListener("click", async ()=>{
       codeErr.textContent = "";
       const phone = phoneInput.value.trim();
       const code = codeInput.value.trim();
       if(!code){ codeErr.textContent="Введите код."; return; }
+
       verifyBtn.disabled = true;
       try{
         const res = await PlatformApi.authVerify(phone, code);
-        if(!res.ok){
-          codeErr.textContent = res.error || "Неверный код.";
+        if(!res?.ok){
+          codeErr.textContent = res?.error || "Неверный код.";
           return;
         }
         PlatformApi.setToken(res.token);
+
         const me = await refreshMe();
         if(!me || !me.ok){ codeErr.textContent="Не удалось получить профиль."; return; }
 
@@ -385,37 +393,44 @@
             try{
               const u = new URL(nextUrl, location.origin);
               if(u.origin === location.origin) location.href = u.pathname + u.search;
-            }catch(_){}
+            }catch(_ ){}
           }
         }
-} finally {
+      } catch(e){
+        console.error(e);
+        codeErr.textContent = "Ошибка сети при проверке кода.";
+      } finally {
         verifyBtn.disabled = false;
       }
-    };
+    });
 
-    saveNameBtn.onclick = async ()=>{
+    saveNameBtn.addEventListener("click", async ()=>{
       nameErr.textContent=""; nameOk.textContent="";
       const name = nameInput.value.trim();
       if(!name){ nameErr.textContent="Введите имя."; return; }
+
       saveNameBtn.disabled = true;
       try{
         const res = await PlatformApi.meSetName(name);
-        if(!res.ok){ nameErr.textContent = res.error || "Не удалось сохранить имя."; return; }
+        if(!res?.ok){ nameErr.textContent = res?.error || "Не удалось сохранить имя."; return; }
         nameOk.textContent = "Сохранено.";
         const me = await refreshMe();
         if(me && me.ok){
           setAuthedUI(me.user);
           if(me.user?.name) showStep("hidden");
         }
+      } catch(e){
+        console.error(e);
+        nameErr.textContent = "Ошибка сети при сохранении имени.";
       } finally {
         saveNameBtn.disabled = false;
       }
-    };
+    });
 
-    logoutBtn.onclick = ()=>{
+    logoutBtn.addEventListener("click", ()=>{
       PlatformApi.clearToken();
       location.href = "/";
-    };
+    });
 
     boot();
   </script>

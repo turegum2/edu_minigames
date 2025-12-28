@@ -1,19 +1,32 @@
 /* global window, document, location, PlatformApi */
 (function(){
+  "use strict";
+  window.__PLATFORM_BRIDGE_VERSION__ = "20251228_04";
+
   const GAME_ID = (function(){
-    // /games/<id>.html
+    if (typeof window.__GAME_ID__ === "string" && window.__GAME_ID__) return window.__GAME_ID__;
     const m = location.pathname.match(/\/games\/([^\/]+)\.html$/);
     return m ? decodeURIComponent(m[1]) : "unknown";
   })();
 
-  const MODE = (new URL(location.href)).searchParams.get("mode") || "new";
+  const url = new URL(location.href);
+  const MODE = url.searchParams.get("mode") || "new";
+  const MENU_URL = url.searchParams.get("menu") || "/";
 
-  // -------- telemetry buffer (minimal, without heavy game instrumentation) --------
+  function menuHrefWithNext(nextPath){
+    try {
+      const u = new URL(MENU_URL, location.origin);
+      u.searchParams.set("next", nextPath);
+      return u.pathname + u.search;
+    } catch(_){
+      return `/?next=${encodeURIComponent(nextPath)}`;
+    }
+  }
+
+  // -------- telemetry buffer --------
   const Telemetry = [];
   function nowMs(){ return Date.now(); }
-  function push(type, data){
-    Telemetry.push({ t: nowMs(), type, ...(data||{}) });
-  }
+  function push(type, data){ Telemetry.push({ t: nowMs(), type, ...(data||{}) }); }
 
   // -------- overlay UI --------
   function createOverlay(){
@@ -64,11 +77,12 @@
     btn.style.cursor = "pointer";
     btn.style.border = "1px solid rgba(255,255,255,0.16)";
     btn.style.color = "rgba(255,255,255,.92)";
-    btn.style.background = secondary ? "rgba(255,255,255,0.06)" : "linear-gradient(180deg, rgba(93,214,255,.22), rgba(93,214,255,.06))";
+    btn.style.background = secondary
+      ? "rgba(255,255,255,0.06)"
+      : "linear-gradient(180deg, rgba(93,214,255,.22), rgba(93,214,255,.06))";
   }
 
   function confirmDialog(message, opts){
-    // opts: { okText, cancelText }
     return new Promise((resolve)=>{
       const back = document.createElement("div");
       back.style.position = "fixed";
@@ -107,14 +121,8 @@
       ok.textContent = (opts && opts.okText) || "OK";
       styleBtn(ok, false);
 
-      cancel.onclick = ()=>{
-        back.remove();
-        resolve(false);
-      };
-      ok.onclick = ()=>{
-        back.remove();
-        resolve(true);
-      };
+      cancel.onclick = ()=>{ back.remove(); resolve(false); };
+      ok.onclick = ()=>{ back.remove(); resolve(true); };
 
       row.appendChild(cancel);
       row.appendChild(ok);
@@ -144,11 +152,8 @@
     setTimeout(()=>t.remove(), 1400);
   }
 
-  // -------- Game adapter (per-game functions are minimal and already exist in your HTML) --------
+  // -------- Game adapter --------
   function createGameInstance(){
-    // Supported conventions:
-    // 1) window.GameInstance.{exportState, importState, getSessionSummary, isCompleted} (per docs)
-    // 2) Legacy globals: window.getState()/exportState(), window.importState(), window.getSessionSummary()
     const w = window;
     const inst = (w.GameInstance && typeof w.GameInstance === "object") ? w.GameInstance : {};
 
@@ -187,12 +192,8 @@
       getState: exportFn ? ()=>exportFn() : ()=>null,
       importState: importFn ? (s)=>importFn(s) : null,
       resetToNew: resetFn ? ()=>resetFn() : null,
-      getSessionSummary: ()=>{
-        try { return summaryFn() || {}; } catch(e){ console.error(e); return {}; }
-      },
-      isCompleted: completedFn ? ()=>{
-        try { return !!completedFn(); } catch(e){ console.error(e); return false; }
-      } : null,
+      getSessionSummary: ()=>{ try { return summaryFn() || {}; } catch(e){ console.error(e); return {}; } },
+      isCompleted: completedFn ? ()=>{ try { return !!completedFn(); } catch(e){ console.error(e); return false; } } : null,
     };
   }
 
@@ -202,6 +203,12 @@
   let game = null;
 
   async function ensureAuthed(){
+    if(!window.PlatformApi){
+      toast("Ошибка: PlatformApi не загружен.");
+      location.href = menuHrefWithNext(location.pathname + location.search);
+      return false;
+    }
+
     const token = PlatformApi.getToken();
     const nextPath = location.pathname + location.search;
 
@@ -210,7 +217,6 @@
       return false;
     }
 
-    // quick check (do not drop token on transient backend issues)
     const me = await PlatformApi.meGet();
     if(!me || !me.ok){
       const err = String(me?.error || "");
@@ -221,7 +227,8 @@
         return false;
       }
       console.warn("ensureAuthed: meGet failed:", me);
-      toast("Сессия проверяется… если сохранение не сработает — обновите страницу.");
+      // transient problem — do not drop token
+      toast("Сессия проверяется…");
       return true;
     }
 
@@ -230,7 +237,7 @@
 
   async function loadIfRequested(){
     if(MODE !== "load") return;
-    if(!game.importState) { toast("Загрузка не поддерживается в этой игре."); return; }
+    if(!game.importState){ toast("Загрузка не поддерживается в этой игре."); return; }
     const res = await PlatformApi.saveGet(GAME_ID);
     if(!res.ok || !res.save || !res.save.payload){
       toast("Сохранение не найдено.");
@@ -242,22 +249,38 @@
       push("save_loaded", {});
     }catch(e){
       console.error(e);
-      toast("Сохранение загружено, но с предупреждением.");
+      toast("Ошибка применения сохранения.");
     }
   }
 
   async function saveNow(){
-    const payload = game.getState ? game.getState() : null;
-    if(!payload){
-      toast("Нечего сохранять (игра не экспортирует состояние).");
-      return;
+    let payload = null;
+    try {
+      payload = game.getState ? game.getState() : null;
+    } catch(e) {
+      console.error(e);
+      toast("Ошибка экспорта состояния.");
+      return { ok:false, error:"export_failed" };
     }
-    const res = await PlatformApi.savePut(GAME_ID, payload);
-    if(res.ok){
-      toast("Сохранено.");
-      push("save_written", {});
-    } else {
+
+    if(payload === null || payload === undefined){
+      toast("Нечего сохранять (игра не экспортирует состояние).");
+      return { ok:false, error:"no_state" };
+    }
+
+    try {
+      const res = await PlatformApi.savePut(GAME_ID, payload);
+      if(res && res.ok){
+        toast("Сохранено.");
+        push("save_written", {});
+        return { ok:true };
+      }
       toast("Ошибка сохранения.");
+      return { ok:false, error: res?.error || "save_failed" };
+    } catch(e) {
+      console.error(e);
+      toast("Ошибка сохранения.");
+      return { ok:false, error:"network" };
     }
   }
 
@@ -268,10 +291,15 @@
       push("session_end_intent", { reason });
 
       const summary = (game && game.getSessionSummary) ? game.getSessionSummary() : {};
-      const events = Telemetry.slice(0, 4000); // защитный лимит
+      const events = Telemetry.slice(0, 4000);
 
       if(sessionId){
-        await PlatformApi.sessionFinish(GAME_ID, sessionId, reason, summary, events);
+        try {
+          await PlatformApi.sessionFinish(GAME_ID, sessionId, reason, summary, events);
+        } catch(e) {
+          console.error(e);
+          // do not block exit
+        }
       }
     } finally {
       finishing = false;
@@ -279,12 +307,18 @@
   }
 
   async function exitFlow(){
-    const wantSave = await confirmDialog("Выйти из игры? Сохранить перед выходом?", { okText: "Сохранить и выйти", cancelText: "Выйти без сохранения" });
-    if(wantSave){
-      await saveNow();
+    const wantSave = await confirmDialog(
+      "Выйти из игры? Сохранить перед выходом?",
+      { okText: "Сохранить и выйти", cancelText: "Выйти без сохранения" }
+    );
+
+    try {
+      if(wantSave) await saveNow();
+      const completed = (game && game.isCompleted) ? game.isCompleted() : false;
+      await finish(completed ? "finish" : "exit");
+    } finally {
+      location.href = MENU_URL;
     }
-    await finish("exit");
-    location.href = "/";
   }
 
   async function boot(){
@@ -308,37 +342,30 @@
     const st = await PlatformApi.sessionStart(GAME_ID, { mode: MODE });
     if(st && st.ok) sessionId = st.session_id;
 
-    // Start mode logic
     if(MODE === "new" && game.resetToNew){
-      try{ game.resetToNew(); }catch(_){}
+      try{ game.resetToNew(); }catch(_ ){}
     }
+
     await loadIfRequested();
 
-    // Safety: if user closes tab — try best-effort finish (no blocking)
-    window.addEventListener("beforeunload", ()=>{
-      // cannot await reliably; just fire and forget
-      if(sessionId && !finishing){
-        const summary = (game && game.getSessionSummary) ? game.getSessionSummary() : {};
-        navigator.sendBeacon?.(
-          `/api/games/${encodeURIComponent(GAME_ID)}/session/${encodeURIComponent(sessionId)}/finish`,
-          new Blob([JSON.stringify({ reason:"unload", summary, events: Telemetry.slice(0, 2000) })], { type: "application/json" })
-        );
-      }
-    });
-
-    // Optional API for games (если позже захотите вызывать из кода игры)
+    // Expose small API for games
     window.Platform = {
       save: saveNow,
       exit: exitFlow,
-      finish: async (reason)=>{ await finish(reason || "completed"); },
+      finish: async (reason)=>{ await finish(reason || "finish"); },
+      finishAndExit: async (reason)=>{
+        try{ await saveNow(); }catch(e){ console.error(e); }
+        await finish(reason || "finish");
+        location.href = MENU_URL;
+      },
+      toMenu: async (reason)=>{
+        await finish(reason || "exit");
+        location.href = MENU_URL;
+      },
       track: (type, data)=>push(type, data),
     };
   }
 
-  // Run after DOM is ready
-  if(document.readyState === "loading"){
-    document.addEventListener("DOMContentLoaded", boot);
-  } else {
-    boot();
-  }
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+  else boot();
 })();
