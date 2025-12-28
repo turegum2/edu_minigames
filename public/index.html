@@ -476,7 +476,7 @@
       <div class="card-header">
         <div class="card-header-left">
           <h2 class="card-title">Вход</h2>
-          <span class="pill accent">SMS</span>
+          <span class="pill accent">Telegram</span>
         </div>
         <span class="pill" id="authStatePill">не авторизован</span>
       </div>
@@ -488,9 +488,9 @@
 
         <!-- Ввод телефона -->
         <div id="authStepPhone">
-          <div class="form-hint">Введите номер телефона. На него придёт код подтверждения.</div>
+          <div class="form-hint">Введите номер телефона. Код придёт в Telegram.</div>
           <div class="form-row">
-            <input id="phoneInput" placeholder="+7XXXXXXXXXX" autocomplete="tel" />
+            <input id="phoneInput" placeholder="+7XXXXXXXXXX" autocomplete="tel" inputmode="numeric" value="+7" />
             <button id="sendCodeBtn">Получить код</button>
           </div>
           <div class="debug-hint" id="debugCodeHint" style="display:none;"></div>
@@ -499,9 +499,9 @@
 
         <!-- Ввод кода -->
         <div id="authStepCode" style="display:none;">
-          <div class="form-hint">Введите код из SMS.</div>
+          <div class="form-hint">Введите код из Telegram.</div>
           <div class="form-row">
-            <input id="codeInput" placeholder="0000" autocomplete="one-time-code" />
+            <input id="codeInput" placeholder="0000" autocomplete="one-time-code" inputmode="numeric" />
             <button id="verifyBtn">Подтвердить</button>
           </div>
           <div class="back-link" id="backBtn">← Назад</div>
@@ -518,8 +518,6 @@
           <div class="msg success" id="nameOk"></div>
           <div class="msg error" id="nameErr"></div>
         </div>
-
-
       </div>
     </div>
 
@@ -543,7 +541,7 @@
 
   <script src="/platform/client.js?v=20251228_05"></script>
   <script>
-    // Fixed script: v20251228_05
+    // Fixed script: v20251228_05 + RU phone lock + Telegram texts
     const PLATFORM_ASSET_VER = "20251228_05";
 
     const $ = (id) => document.getElementById(id);
@@ -577,6 +575,96 @@
 
     const nextUrl = new URL(location.href).searchParams.get("next");
 
+    // --- RU phone input: fixed +7 and exactly 10 digits after it ---
+    function ruOnlyDigits(s) {
+      return String(s || "").replace(/\D/g, "");
+    }
+    function ruNational10FromAny(raw) {
+      const digits = ruOnlyDigits(raw);
+      // accept +7XXXXXXXXXX / 7XXXXXXXXXX / 8XXXXXXXXXX / XXXXXXXXXX
+      if (digits.length >= 11 && (digits.startsWith("7") || digits.startsWith("8"))) {
+        return digits.slice(1, 11);
+      }
+      if (digits.length >= 10) return digits.slice(0, 10);
+      return digits;
+    }
+    function ruFormatPhone(raw) {
+      return "+7" + ruNational10FromAny(raw);
+    }
+    function caretToEnd(el) {
+      try {
+        const n = el.value.length;
+        el.setSelectionRange(n, n);
+      } catch (_) {}
+    }
+    function enforceRuPhone() {
+      const formatted = ruFormatPhone(phoneInput.value);
+      if (phoneInput.value !== formatted) phoneInput.value = formatted;
+
+      // max length: "+7" + 10 digits = 12
+      if (phoneInput.value.length > 12) phoneInput.value = phoneInput.value.slice(0, 12);
+
+      // prevent caret inside "+7"
+      const ss = phoneInput.selectionStart ?? 0;
+      const se = phoneInput.selectionEnd ?? 0;
+      if (ss < 2 || se < 2) caretToEnd(phoneInput);
+    }
+    function isValidRuPhone(phone) {
+      return /^\+7\d{10}$/.test(phone);
+    }
+
+    // init
+    enforceRuPhone();
+    phoneInput.addEventListener("input", () => { enforceRuPhone(); caretToEnd(phoneInput); });
+    phoneInput.addEventListener("focus", () => { enforceRuPhone(); caretToEnd(phoneInput); });
+    phoneInput.addEventListener("click", () => {
+      const ss = phoneInput.selectionStart ?? 0;
+      if (ss < 2) caretToEnd(phoneInput);
+    });
+    phoneInput.addEventListener("paste", (e) => {
+      // normalize pasted content
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData).getData("text");
+      phoneInput.value = ruFormatPhone(text);
+      enforceRuPhone();
+      caretToEnd(phoneInput);
+    });
+    phoneInput.addEventListener("keydown", (e) => {
+      const ss = phoneInput.selectionStart ?? 0;
+      const se = phoneInput.selectionEnd ?? 0;
+
+      // prevent deleting/changing "+7"
+      if ((e.key === "Backspace" || e.key === "Delete") && ss <= 2 && se <= 2) {
+        e.preventDefault();
+        caretToEnd(phoneInput);
+        return;
+      }
+
+      // if user tries to type before prefix - push caret
+      if (ss < 2 && e.key && e.key.length === 1) {
+        e.preventDefault();
+        caretToEnd(phoneInput);
+        return;
+      }
+
+      // allow only digits (besides control keys)
+      if (e.key && e.key.length === 1) {
+        if (!/[0-9]/.test(e.key)) {
+          e.preventDefault();
+          return;
+        }
+        // prevent more than 10 digits after +7
+        const national = ruNational10FromAny(phoneInput.value);
+        const selLen = Math.max(0, (se - ss));
+        const atEndDigitsCount = national.length;
+        const maxDigits = 10;
+        if (atEndDigitsCount >= maxDigits && selLen === 0) {
+          e.preventDefault();
+          return;
+        }
+      }
+    });
+
     // Маппинг ID игр на русские названия
     const GAME_TITLES = {
       parabola: "Парабола: попади в цель",
@@ -600,7 +688,8 @@
       expired: "Код истёк. Запросите новый код.",
       too_many_attempts: "Слишком много попыток. Попробуйте позже.",
       network_error: "Ошибка сети. Проверьте подключение.",
-      unauthorized: "Сессия истекла. Войдите снова."
+      unauthorized: "Сессия истекла. Войдите снова.",
+      telegram_failed: "Не удалось отправить код в Telegram. Проверьте номер и попробуйте снова."
     };
 
     function friendlyError(err) {
@@ -644,6 +733,8 @@
       authStatePill.classList.remove("success");
       cabCard.style.display = "none";
       showStep("phone");
+      enforceRuPhone();
+      caretToEnd(phoneInput);
     }
 
     function renderGames(games) {
@@ -741,9 +832,11 @@
         return;
       }
 
+      enforceRuPhone();
       const phone = phoneInput.value.trim();
-      if (!phone) {
-        phoneErr.textContent = "Введите номер телефона.";
+      if (!isValidRuPhone(phone)) {
+        phoneErr.textContent = "Введите номер в формате +7 и 10 цифр.";
+        caretToEnd(phoneInput);
         return;
       }
 
@@ -772,8 +865,16 @@
 
     verifyBtn.addEventListener("click", async () => {
       codeErr.textContent = "";
+      enforceRuPhone();
       const phone = phoneInput.value.trim();
       const code = codeInput.value.trim();
+
+      if (!isValidRuPhone(phone)) {
+        codeErr.textContent = "Номер телефона некорректен.";
+        showStep("phone");
+        caretToEnd(phoneInput);
+        return;
+      }
       if (!code) {
         codeErr.textContent = "Введите код.";
         return;

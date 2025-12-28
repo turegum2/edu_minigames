@@ -32,9 +32,11 @@ const AWS_REGION = process.env.AWS_REGION || "ru-central1";
 const AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID || "";
 const AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY || "";
 
-const SMS_MODE = (process.env.SMS_MODE || "cns").toLowerCase(); // cns | mock
+const SMS_MODE = (process.env.SMS_MODE || "cns").toLowerCase(); // cns | gateway | mock
 const CNS_ENDPOINT = process.env.CNS_ENDPOINT || "https://notifications.yandexcloud.net";
 const DEBUG_OTP = (process.env.DEBUG_OTP || "0") === "1";
+const TELEGRAM_GATEWAY_TOKEN = process.env.TELEGRAM_GATEWAY_TOKEN || "";
+const TELEGRAM_GATEWAY_TTL = Number(process.env.TELEGRAM_GATEWAY_TTL || "600"); // seconds (30..3600)
 
 // games catalog
 const GAMES = [
@@ -74,7 +76,15 @@ function resp(statusCode, obj, extraHeaders) {
 }
 
 function normalizePhone(p) {
-  return String(p || "").trim();
+  const s = String(p || "").trim();
+  const digits = s.replace(/\D/g, "");
+  // RU only: accept +7XXXXXXXXXX / 7XXXXXXXXXX / 8XXXXXXXXXX / XXXXXXXXXX
+  let national = "";
+  if (digits.length === 11 && (digits.startsWith("7") || digits.startsWith("8"))) national = digits.slice(1);
+  else if (digits.length === 10) national = digits;
+  else return null;
+  if (national.length !== 10) return null;
+  return "+7" + national;
 }
 
 function sha256(s) {
@@ -514,19 +524,55 @@ async function dbUpsertGameStats(context, userId, gameId, starsTotal) {
 }
 
 // ---- integrations ----
-async function sendSms(phone, message) {
+async function sendOtp(phone, code) {
   if (SMS_MODE === "mock") {
-    console.log("[SMS MOCK]", phone, message);
+    console.log("[OTP MOCK]", phone, code);
     return { ok: true };
   }
+
+  if (SMS_MODE === "gateway") {
+    return await sendTelegramVerification(phone, code);
+  }
+
+  // default: Yandex Cloud Notification Service (SNS-compatible)
+  const message = `Код подтверждения: ${code}`;
   const client = getSns();
-  await client.send(
-    new PublishCommand({
-      PhoneNumber: phone,
-      Message: message,
-    })
-  );
+  await client.send(new PublishCommand({ PhoneNumber: phone, Message: message }));
   return { ok: true };
+}
+
+async function sendTelegramVerification(phone, code) {
+  if (!TELEGRAM_GATEWAY_TOKEN) throw new Error("TELEGRAM_GATEWAY_TOKEN_missing");
+
+  const ttlRaw = Number(TELEGRAM_GATEWAY_TTL);
+  const ttl = Number.isFinite(ttlRaw) ? Math.min(3600, Math.max(30, ttlRaw)) : 600;
+
+  const url = "https://gatewayapi.telegram.org/sendVerificationMessage";
+  const r = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${TELEGRAM_GATEWAY_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      phone_number: phone,
+      code: String(code),
+      ttl,
+    }),
+  });
+
+  let j = null;
+  try { j = await r.json(); } catch (_) {}
+
+  if (!r.ok) {
+    const msg = j?.error ? String(j.error) : `gateway_http_${r.status}`;
+    throw new Error(msg);
+  }
+  if (!j?.ok) {
+    throw new Error(j?.error ? String(j.error) : "gateway_error");
+  }
+
+  return { ok: true, request_id: j?.result?.request_id };
 }
 
 async function uploadRaw(gameId, userId, sessionId, events, summary) {
@@ -581,14 +627,14 @@ export async function handler(event, context) {
 
       await dbPutAuthCode(context, phone, sha256(code), expiresAt);
 
-      const msg = `Код подтверждения: ${code}`;
       try {
-        await sendSms(phone, msg);
+        await sendOtp(phone, code);
       } catch (e) {
-        console.log("sendSms error:", String(e?.message || e));
+        console.log("sendOtp error:", String(e?.message || e));
+        await dbDeleteAuthCode(context, phone);
         return resp(500, {
           ok: false,
-          error: "sms_failed",
+          error: SMS_MODE === "gateway" ? "telegram_failed" : "sms_failed",
           ...(DEBUG_OTP ? { debug_code: code } : {}),
         });
       }

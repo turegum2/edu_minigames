@@ -77,6 +77,7 @@ jobs:
 
           SMS_MODE: ${{ vars.SMS_MODE }}
           DEBUG_OTP: ${{ vars.DEBUG_OTP }}
+          TELEGRAM_GATEWAY_TOKEN: ${{ secrets.TELEGRAM_GATEWAY_TOKEN }}
           CNS_ENDPOINT: ${{ vars.CNS_ENDPOINT }}
         run: |
           set -e
@@ -100,6 +101,7 @@ jobs:
             --environment YDB_TABLE_PREFIX="$YDB_TABLE_PREFIX" \
             --environment SMS_MODE="$SMS_MODE" \
             --environment DEBUG_OTP="$DEBUG_OTP" \
+            --environment TELEGRAM_GATEWAY_TOKEN="$TELEGRAM_GATEWAY_TOKEN" \
             --environment CNS_ENDPOINT="$CNS_ENDPOINT"
 
       - name: Render OpenAPI spec (replace placeholders)
