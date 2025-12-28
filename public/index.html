@@ -510,7 +510,7 @@
 
         <!-- Ввод имени -->
         <div id="profileStep" style="display:none;">
-          <div class="form-hint">Первый вход: укажите имя (можно позже изменить).</div>
+          <div class="form-hint">Для продолжения укажите ваше имя. Оно будет отображаться в личном кабинете.</div>
           <div class="form-row">
             <input id="nameInput" placeholder="Ваше имя" autocomplete="name" />
             <button id="saveNameBtn">Сохранить</button>
@@ -698,13 +698,20 @@
 
       const me = await refreshMe();
       if (me && me.ok) {
-        setAuthedUI(me.user);
-
+        // ВАЖНО: сначала проверяем имя, потом решаем что показывать
         if (!me.user?.name) {
+          // Имя не установлено - показываем ТОЛЬКО форму ввода имени
+          // Личный кабинет НЕ показываем, пока имя не введено
+          authStatePill.textContent = "авторизован";
+          authStatePill.classList.add("success");
+          cabCard.style.display = "none";
           showStep("profile");
+          nameInput.focus();
           return;
         }
 
+        // Имя есть - показываем полный интерфейс
+        setAuthedUI(me.user);
         showStep("hidden");
 
         if (nextUrl) {
@@ -787,12 +794,18 @@
           return;
         }
 
-        setAuthedUI(me.user);
-
+        // ВАЖНО: сначала проверяем имя
         if (!me.user?.name) {
+          // Новый пользователь или имя не установлено
+          // Показываем ТОЛЬКО форму ввода имени
+          authStatePill.textContent = "авторизован";
+          authStatePill.classList.add("success");
+          cabCard.style.display = "none";
           showStep("profile");
           nameInput.focus();
         } else {
+          // Имя есть - показываем кабинет
+          setAuthedUI(me.user);
           showStep("hidden");
           if (nextUrl) {
             try {
@@ -825,11 +838,15 @@
           nameErr.textContent = friendlyError(res?.error) || "Не удалось сохранить имя.";
           return;
         }
-        nameOk.textContent = "✓ Сохранено!";
+        
+        // Имя сохранено - обновляем данные и показываем кабинет
         const me = await refreshMe();
-        if (me && me.ok) {
+        if (me && me.ok && me.user?.name) {
           setAuthedUI(me.user);
-          if (me.user?.name) showStep("hidden");
+          showStep("hidden");
+        } else {
+          // На всякий случай, если что-то пошло не так
+          nameOk.textContent = "✓ Сохранено! Обновите страницу.";
         }
       } catch (e) {
         console.error(e);
