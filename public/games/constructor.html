@@ -404,7 +404,7 @@
 
   // ========================== СОСТОЯНИЕ ==========================
   let state = "intro", level_index = 0;
-  const stars_per_level = new Array(LEVELS.length).fill(0);
+  let stars_per_level = Array(LEVELS.length).fill(0);
   let atoms = [], bonds = [], available_atoms = {}, palette_remaining = {}, palette_elements_order = [];
   let selected_atom = null, drag_mode = null, drag_atom = null, drag_element = null, drag_pos = [0, 0];
   let mouse_pos = [0, 0], mouse_down_button = null, mouse_down_pos = [0, 0], mouse_drag_moved = false;

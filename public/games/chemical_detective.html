@@ -1699,14 +1699,26 @@ window.GameInstance = {
   exportState(){ return { v: 1, levelIndex, completed: (state === "final"),starsPerLevel: Array.isArray(starsPerLevel) ? starsPerLevel.slice() : [] }; },
   importState(s){
     if (!s || typeof s !== "object") return;
-    if (Number.isInteger(s.levelIndex)) levelIndex = Math.max(0, Math.min(LEVELS.length-1, s.levelIndex));
-    if (Array.isArray(s.starsPerLevel)) {
-      starsPerLevel = s.starsPerLevel.map(x => Math.max(0, Math.min(3, Number(x)||0)));
-      while (starsPerLevel.length < LEVELS.length) starsPerLevel.push(0);
-      starsPerLevel = starsPerLevel.slice(0, LEVELS.length);
+
+    const levelsLen = DATA.LEVELS.length;
+
+    // поддержим оба варианта ключей: levelIndex / level_index
+    const idx = Number.isInteger(s.levelIndex) ? s.levelIndex
+              : (Number.isInteger(s.level_index) ? s.level_index : null);
+    if (idx !== null) levelIndex = Math.max(0, Math.min(levelsLen - 1, idx));
+
+    // поддержим оба варианта ключей: starsPerLevel / stars_per_level
+    const srcStars = Array.isArray(s.starsPerLevel) ? s.starsPerLevel
+                  : (Array.isArray(s.stars_per_level) ? s.stars_per_level : null);
+
+    if (srcStars) {
+      starsPerLevel = srcStars.map(x => Math.max(0, Math.min(3, Number(x) || 0)));
+      while (starsPerLevel.length < levelsLen) starsPerLevel.push(0);
+      starsPerLevel = starsPerLevel.slice(0, levelsLen);
     }
+
     resetLevel();
-    state = (s && s.completed) ? "final" : "play";
+    state = "play";
   },
   isCompleted(){ return state === "final"; },
   getSessionSummary(){
