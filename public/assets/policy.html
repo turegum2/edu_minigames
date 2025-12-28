@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Политика обработки персональных данных — Учебные мини-игры</title>
+  <link rel="stylesheet" href="/assets/fonts/nunito/wght.css">
+  <style>
+    :root {
+      --bg1: #1a1a2e;
+      --bg2: #16213e;
+      --bg3: #0f3460;
+      --card: rgba(15, 25, 45, 0.92);
+      --card-border: rgba(79, 172, 254, 0.3);
+      --card-glow: rgba(79, 172, 254, 0.1);
+      --muted: #90A4AE;
+      --text: #FFFFFF;
+      --text-secondary: #B0BEC5;
+      --accent: #4FC3F7;
+      --accent-glow: rgba(79, 172, 254, 0.4);
+      --good: #81C784;
+      --good-glow: rgba(129, 199, 132, 0.3);
+      --line: rgba(255,255,255,0.1);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: "Nunito Variable", system-ui, -apple-system, sans-serif;
+      color: var(--text);
+    }
+
+    body {
+      background: linear-gradient(135deg, var(--bg1) 0%, var(--bg2) 50%, var(--bg3) 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px;
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    body::before,
+    body::after {
+      content: '';
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(80px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    body::before {
+      width: 500px;
+      height: 500px;
+      background: rgba(79, 172, 254, 0.08);
+      top: -100px;
+      left: -100px;
+    }
+
+    body::after {
+      width: 400px;
+      height: 400px;
+      background: rgba(129, 199, 132, 0.06);
+      bottom: -50px;
+      right: -50px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 800px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .logo {
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #4FC3F7 0%, #81C784 100%);
+      box-shadow: 
+        0 8px 32px rgba(79, 172, 254, 0.3),
+        0 0 20px rgba(129, 199, 132, 0.2);
+      flex-shrink: 0;
+      cursor: pointer;
+      transition: transform 0.2s ease;
+    }
+
+    .logo:hover {
+      transform: scale(1.05);
+    }
+
+    .header-text {
+      flex: 1;
+    }
+
+    .title {
+      font-size: 24px;
+      font-weight: 800;
+      margin: 0;
+      letter-spacing: 0.3px;
+      background: linear-gradient(90deg, #FFFFFF, #B0BEC5);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: var(--muted);
+      margin: 4px 0 0 0;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      box-shadow: 
+        0 20px 60px rgba(0, 0, 0, 0.4),
+        0 0 40px var(--card-glow),
+        inset 0 1px 0 rgba(255,255,255,0.05);
+      backdrop-filter: blur(20px);
+      overflow: hidden;
+      margin-bottom: 20px;
+      animation: fadeIn 0.4s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .card-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .card-header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .pill {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      border: 1px solid var(--line);
+      padding: 5px 10px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.04);
+      user-select: none;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .pill.accent {
+      color: var(--accent);
+      border-color: var(--accent-glow);
+      background: rgba(79, 172, 254, 0.1);
+    }
+
+    .card-body {
+      padding: 24px;
+    }
+
+    .section {
+      margin-bottom: 24px;
+    }
+
+    .section:last-child {
+      margin-bottom: 0;
+    }
+
+    .section-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--accent);
+      margin: 0 0 12px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .section-title::before {
+      content: '';
+      width: 4px;
+      height: 16px;
+      background: var(--accent);
+      border-radius: 2px;
+    }
+
+    .section-text {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text-secondary);
+      margin: 0;
+    }
+
+    .section-text strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .data-list {
+      margin: 12px 0;
+      padding-left: 20px;
+    }
+
+    .data-list li {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+
+    .data-list li::marker {
+      color: var(--accent);
+    }
+
+    .highlight-box {
+      background: rgba(79, 172, 254, 0.08);
+      border: 1px solid rgba(79, 172, 254, 0.2);
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 12px;
+    }
+
+    .highlight-box p {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+    }
+
+    .highlight-box strong {
+      color: var(--good);
+    }
+
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--accent);
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      margin-top: 16px;
+    }
+
+    .back-link:hover {
+      color: var(--text);
+      transform: translateX(-4px);
+    }
+
+    .back-link svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .footer-info {
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 24px;
+      padding: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .footer-info p {
+      margin: 4px 0;
+    }
+
+    @media (max-width: 500px) {
+      body {
+        padding: 16px;
+      }
+
+      .title {
+        font-size: 20px;
+      }
+
+      .card-body {
+        padding: 16px;
+      }
+
+      .section-title {
+        font-size: 14px;
+      }
+
+      .section-text {
+        font-size: 13px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Шапка -->
+    <div class="header">
+      <a href="/" class="logo" title="На главную"></a>
+      <div class="header-text">
+        <h1 class="title">Политика обработки персональных данных</h1>
+        <p class="subtitle">Учебные мини-игры</p>
+      </div>
+    </div>
+
+    <!-- Основная карточка -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-left">
+          <h2 class="card-title">Политика обработки персональных данных</h2>
+        </div>
+        <span class="pill accent">ФЗ-152</span>
+      </div>
+      <div class="card-body">
+        
+        <div class="section">
+          <h3 class="section-title">Общие положения</h3>
+          <p class="section-text">
+            Настоящая Политика определяет порядок обработки персональных данных пользователей 
+            веб-сайта «Учебные мини-игры» (далее — Сайт). Сайт создан в рамках учебного проекта 
+            <strong>«От формул к практике через игру»</strong> учениками 8 класса Московской 
+            международной школы.
+          </p>
+        </div>
+
+        <div class="section">
+          <h3 class="section-title">Какие данные собираются</h3>
+          <p class="section-text">При использовании Сайта обрабатываются следующие персональные данные:</p>
+          <ul class="data-list">
+            <li><strong>Номер телефона</strong> — для авторизации через Telegram</li>
+            <li><strong>Имя пользователя</strong> — для персонализации интерфейса</li>
+            <li><strong>Игровой прогресс</strong> — результаты прохождения игр, достижения, сохранения</li>
+          </ul>
+        </div>
+
+        <div class="section">
+          <h3 class="section-title">Цели обработки данных</h3>
+          <p class="section-text">Персональные данные обрабатываются исключительно для:</p>
+          <ul class="data-list">
+            <li>Идентификации пользователя при входе на Сайт</li>
+            <li>Сохранения игрового прогресса между сессиями</li>
+            <li>Отображения персонализированного приветствия</li>
+            <li>Анализа эффективности обучающих игр в рамках учебного исследования</li>
+          </ul>
+        </div>
+
+        <div class="section">
+          <h3 class="section-title">Хранение данных</h3>
+          <p class="section-text">
+            Все персональные данные хранятся на серверах <strong>Яндекс Cloud</strong>, 
+            расположенных на территории Российской Федерации, что соответствует требованиям 
+            Федерального закона №152-ФЗ «О персональных данных».
+          </p>
+          <div class="highlight-box">
+            <p>
+              <strong>Важно:</strong> Ваши данные не передаются третьим лицам, не используются 
+              в рекламных целях и не продаются. Данные используются только для функционирования 
+              Сайта и учебных целей проекта.
+            </p>
+          </div>
+        </div>
+
+        <div class="section">
+          <h3 class="section-title">Срок хранения</h3>
+          <p class="section-text">
+            Персональные данные хранятся в течение срока существования учебного проекта и могут 
+            быть удалены по запросу пользователя. После завершения проекта все данные будут 
+            обезличены или удалены.
+          </p>
+        </div>
+
+        <div class="section">
+          <h3 class="section-title">Права пользователя</h3>
+          <p class="section-text">Вы имеете право:</p>
+          <ul class="data-list">
+            <li>Получить информацию о своих персональных данных</li>
+            <li>Потребовать исправления неточных данных</li>
+            <li>Отозвать согласие на обработку и потребовать удаления данных</li>
+            <li>Выйти из системы и прекратить использование Сайта</li>
+          </ul>
+          <p class="section-text" style="margin-top: 12px;">
+            Для реализации своих прав вы можете выйти из личного кабинета (кнопка «Выйти») 
+            или связаться с авторами проекта.
+          </p>
+        </div>
+
+        <div class="section">
+          <h3 class="section-title">Согласие на обработку</h3>
+          <p class="section-text">
+            Вводя номер телефона и нажимая кнопку «Получить код», вы даёте согласие на обработку 
+            персональных данных в соответствии с настоящей Политикой. Согласие может быть отозвано 
+            в любой момент путём прекращения использования Сайта и выхода из системы.
+          </p>
+        </div>
+
+        <div class="section">
+          <h3 class="section-title">Контакты</h3>
+          <p class="section-text">
+            Проект выполнен учениками 8 класса Московской международной школы в рамках конкурса 
+            проектных работ «Меркурий». По вопросам обработки персональных данных обращайтесь 
+            к руководителю проекта через администрацию школы.
+          </p>
+        </div>
+
+        <a href="/" class="back-link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          Вернуться на главную
+        </a>
+      </div>
+    </div>
+
+    <div class="footer-info">
+      <p>Учебный проект «От формул к практике через игру»</p>
+      <p>Московская международная школа, 2025</p>
+    </div>
+  </div>
+</body>
+</html>

@@ -423,6 +423,25 @@
       gap: 10px;
     }
 
+    /* Согласие с политикой обработки персональных данных */
+    .consent-text {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 12px;
+      line-height: 1.5;
+    }
+
+    .consent-text a {
+      color: var(--accent);
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+
+    .consent-text a:hover {
+      color: var(--text);
+      text-decoration: underline;
+    }
+
     /* Анимации */
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(10px); }
@@ -493,6 +512,9 @@
             <input id="phoneInput" placeholder="+7XXXXXXXXXX" autocomplete="tel" inputmode="numeric" value="+7" />
             <button id="sendCodeBtn">Получить код</button>
           </div>
+          <p class="consent-text">
+            Нажимая «Получить код», вы соглашаетесь с <a href="/assets/policy.html" target="_blank">политикой обработки персональных данных</a>
+          </p>
           <div class="debug-hint" id="debugCodeHint" style="display:none;"></div>
           <div class="msg error" id="phoneErr"></div>
         </div>
