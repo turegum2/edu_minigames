@@ -891,11 +891,18 @@
         stars_by_level: by,
         level_reached: (Number.isInteger(level_index) ? level_index+1 : null),
       };
+    /* platform-compat-aliases */
+    // Compatibility for older bridge versions that look for global functions:
+    window.getState = window.getState || (() => (window.GameInstance && typeof window.GameInstance.exportState === "function" ? window.GameInstance.exportState() : null));
+    window.importState = window.importState || ((s) => { try { window.GameInstance && typeof window.GameInstance.importState === "function" && window.GameInstance.importState(s); } catch(e){ console.error(e); } });
+    window.getSessionSummary = window.getSessionSummary || (() => (window.GameInstance && typeof window.GameInstance.getSessionSummary === "function" ? window.GameInstance.getSessionSummary() : {}));
+    window.isCompleted = window.isCompleted || (() => (window.GameInstance && typeof window.GameInstance.isCompleted === "function" ? !!window.GameInstance.isCompleted() : false));
+
     }
   };
 })();
 </script>
-<script src="/platform/client.js"></script>
-<script src="/platform/bridge.js"></script>
+<script src="/platform/client.js?v=20251228_03"></script>
+<script src="/platform/bridge.js?v=20251228_03"></script>
 </body>
 </html>

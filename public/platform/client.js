@@ -1,5 +1,7 @@
 /* global window, fetch */
 (function(){
+  window.__PLATFORM_CLIENT_VERSION__ = "20251228_03";
+
   const TOKEN_KEY = "platform_token_v1";
 
   function getToken(){ return localStorage.getItem(TOKEN_KEY) || ""; }

@@ -1,5 +1,7 @@
 /* global window, document, location, PlatformApi */
 (function(){
+  window.__PLATFORM_BRIDGE_VERSION__ = "20251228_03";
+
   const GAME_ID = (function(){
     // Preferred: game HTML declares window.__GAME_ID__ = "..."
     if (typeof window.__GAME_ID__ === "string" && window.__GAME_ID__) return window.__GAME_ID__;

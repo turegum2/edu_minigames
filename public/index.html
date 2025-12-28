@@ -165,8 +165,9 @@
     </div>
   </div>
 
-  <script src="/platform/client.js"></script>
+  <script src="/platform/client.js?v=20251228_03"></script>
   <script>
+    const PLATFORM_ASSET_VER = "20251228_03";
     // ---------- UI helpers ----------
     const $ = (id)=>document.getElementById(id);
     const envPill = $("envPill");
@@ -255,7 +256,7 @@
           if(!btn) return;
           const gameId = btn.getAttribute("data-id");
           const act = btn.getAttribute("data-act");
-          const url = `/games/${gameId}.html?mode=${act==="load" ? "load" : "new"}`;
+          const url = `/games/${gameId}.html?mode=${act==="load" ? "load" : "new"}&v=${encodeURIComponent(PLATFORM_ASSET_VER)}`;
           location.href = url;
         });
         gamesList.appendChild(wrap);
