@@ -1,28 +1,10 @@
 /* global window, document, location, PlatformApi */
 (function(){
-  window.__PLATFORM_BRIDGE_VERSION__ = "20251228_03";
-
   const GAME_ID = (function(){
-    // Preferred: game HTML declares window.__GAME_ID__ = "..."
-    if (typeof window.__GAME_ID__ === "string" && window.__GAME_ID__) return window.__GAME_ID__;
-    // Fallback: infer from URL like /games/<id>.html
+    // /games/<id>.html
     const m = location.pathname.match(/\/games\/([^\/]+)\.html$/);
     return m ? decodeURIComponent(m[1]) : "unknown";
   })();
-
-  // Optional override: /games/parabola.html?menu=/some/path/
-  const MENU_URL = (new URL(location.href)).searchParams.get("menu") || "/";
-
-  function menuHrefWithNext(nextPath){
-    try{
-      const u = new URL(MENU_URL, location.origin);
-      u.searchParams.set("next", nextPath);
-      return u.pathname + u.search;
-    } catch(_){
-      return `/?next=${encodeURIComponent(nextPath)}`;
-    }
-  }
-
 
   const MODE = (new URL(location.href)).searchParams.get("mode") || "new";
 
@@ -165,43 +147,42 @@
   // -------- Game adapter (per-game functions are minimal and already exist in your HTML) --------
   function createGameInstance(){
     // Supported conventions:
-    // 1) window.GameInstance.{exportState, importState, getSessionSummary, ...}  (per docs)
-    // 2) Legacy globals: window.exportState/window.importState OR window.getState()
+    // 1) window.GameInstance.{exportState, importState, getSessionSummary, isCompleted} (per docs)
+    // 2) Legacy globals: window.getState()/exportState(), window.importState(), window.getSessionSummary()
     const w = window;
     const inst = (w.GameInstance && typeof w.GameInstance === "object") ? w.GameInstance : {};
 
     const exportFn =
-      (typeof w.getState === "function" ? w.getState
-      : (typeof w.exportState === "function" ? w.exportState
-      : (typeof inst.getState === "function" ? inst.getState.bind(inst)
-      : (typeof inst.exportState === "function" ? inst.exportState.bind(inst)
-      : null))));
+      (typeof inst.exportState === "function") ? inst.exportState.bind(inst)
+      : (typeof inst.getState === "function") ? inst.getState.bind(inst)
+      : (typeof w.getState === "function") ? w.getState
+      : (typeof w.exportState === "function") ? w.exportState
+      : null;
 
     const importFn =
-      (typeof w.importState === "function" ? w.importState
-      : (typeof inst.importState === "function" ? inst.importState.bind(inst)
-      : null));
+      (typeof inst.importState === "function") ? inst.importState.bind(inst)
+      : (typeof w.importState === "function") ? w.importState
+      : null;
 
     const resetFn =
-      (typeof w.reset_to_new_game === "function" ? w.reset_to_new_game
-      : (typeof w.resetToNewGame === "function" ? w.resetToNewGame
-      : (typeof inst.reset_to_new_game === "function" ? inst.reset_to_new_game.bind(inst)
-      : (typeof inst.resetToNewGame === "function" ? inst.resetToNewGame.bind(inst)
-      : (typeof inst.resetToNew === "function" ? inst.resetToNew.bind(inst)
-      : null)))));
+      (typeof w.reset_to_new_game === "function") ? w.reset_to_new_game
+      : (typeof w.resetToNewGame === "function") ? w.resetToNewGame
+      : (typeof inst.reset_to_new_game === "function") ? inst.reset_to_new_game.bind(inst)
+      : (typeof inst.resetToNewGame === "function") ? inst.resetToNewGame.bind(inst)
+      : (typeof inst.resetToNew === "function") ? inst.resetToNew.bind(inst)
+      : null;
 
     const summaryFn =
-      (typeof w.getSessionSummary === "function" ? w.getSessionSummary
-      : (typeof inst.getSessionSummary === "function" ? inst.getSessionSummary.bind(inst)
-      : ()=>({})));
+      (typeof inst.getSessionSummary === "function") ? inst.getSessionSummary.bind(inst)
+      : (typeof w.getSessionSummary === "function") ? w.getSessionSummary
+      : ()=>({});
 
     const completedFn =
-      (typeof w.isCompleted === "function" ? w.isCompleted
-      : (typeof inst.isCompleted === "function" ? inst.isCompleted.bind(inst)
-      : (typeof inst.isFinished === "function" ? inst.isFinished.bind(inst)
-      : null)));
+      (typeof inst.isCompleted === "function") ? inst.isCompleted.bind(inst)
+      : (typeof w.isCompleted === "function") ? w.isCompleted
+      : (typeof inst.isFinished === "function") ? inst.isFinished.bind(inst)
+      : null;
 
-    // Fallback: if some functions are missing, we still support "exit without save"
     return {
       getState: exportFn ? ()=>exportFn() : ()=>null,
       importState: importFn ? (s)=>importFn(s) : null,
@@ -229,12 +210,19 @@
       return false;
     }
 
-    // quick check
+    // quick check (do not drop token on transient backend issues)
     const me = await PlatformApi.meGet();
     if(!me || !me.ok){
-      PlatformApi.clearToken();
-      location.href = menuHrefWithNext(nextPath);
-      return false;
+      const err = String(me?.error || "");
+      const isUnauth = (err === "unauthorized") || err.includes("401");
+      if(isUnauth){
+        PlatformApi.clearToken();
+        location.href = menuHrefWithNext(nextPath);
+        return false;
+      }
+      console.warn("ensureAuthed: meGet failed:", me);
+      toast("Сессия проверяется… если сохранение не сработает — обновите страницу.");
+      return true;
     }
 
     return true;
@@ -254,44 +242,27 @@
       push("save_loaded", {});
     }catch(e){
       console.error(e);
-      toast("Ошибка загрузки сохранения.");
+      toast("Сохранение загружено, но с предупреждением.");
     }
   }
 
   async function saveNow(){
-    let payload = null;
-
-    try{
-      payload = (game && game.getState) ? game.getState() : null;
-    } catch(e){
-      console.error(e);
-      toast("Ошибка экспорта состояния.");
-      return { ok: false, error: "export_failed" };
-    }
-
-    if(payload === null || payload === undefined){
+    const payload = game.getState ? game.getState() : null;
+    if(!payload){
       toast("Нечего сохранять (игра не экспортирует состояние).");
-      return { ok: false, error: "no_state" };
+      return;
     }
-
-    try{
-      const res = await PlatformApi.savePut(GAME_ID, payload);
-      if(res && res.ok){
-        toast("Сохранено.");
-        push("save_written", {});
-        return { ok: true };
-      }
+    const res = await PlatformApi.savePut(GAME_ID, payload);
+    if(res.ok){
+      toast("Сохранено.");
+      push("save_written", {});
+    } else {
       toast("Ошибка сохранения.");
-      return { ok: false, error: (res && res.error) || "save_failed" };
-    } catch(e){
-      console.error(e);
-      toast("Ошибка сохранения.");
-      return { ok: false, error: "network" };
     }
   }
 
   async function finish(reason){
-    if(finishing) return { ok: false, error: "already_finishing" };
+    if(finishing) return;
     finishing = true;
     try{
       push("session_end_intent", { reason });
@@ -300,35 +271,20 @@
       const events = Telemetry.slice(0, 4000); // защитный лимит
 
       if(sessionId){
-        try{
-          await PlatformApi.sessionFinish(GAME_ID, sessionId, reason, summary, events);
-        } catch(e){
-          console.error(e);
-        }
+        await PlatformApi.sessionFinish(GAME_ID, sessionId, reason, summary, events);
       }
-      return { ok: true };
     } finally {
       finishing = false;
     }
   }
 
   async function exitFlow(){
-    const wantSave = await confirmDialog("Выйти из игры? Сохранить перед выходом?", {
-      okText: "Сохранить и выйти",
-      cancelText: "Выйти без сохранения"
-    });
-
-    try{
-      if(wantSave){
-        await saveNow();
-      }
-      const reason = (game && game.isCompleted && game.isCompleted()) ? "finish" : "exit";
-      await finish(reason);
-    } catch(e){
-      console.error(e);
+    const wantSave = await confirmDialog("Выйти из игры? Сохранить перед выходом?", { okText: "Сохранить и выйти", cancelText: "Выйти без сохранения" });
+    if(wantSave){
+      await saveNow();
     }
-
-    location.href = MENU_URL;
+    await finish("exit");
+    location.href = "/";
   }
 
   async function boot(){
@@ -374,21 +330,7 @@
     window.Platform = {
       save: saveNow,
       exit: exitFlow,
-      finish: async (reason)=>{ await finish(reason || "finish"); },
-
-      // For games: finish session (+ optional save) and return to main menu
-      finishAndExit: async (reason)=>{
-        try{ await saveNow(); } catch(e){ console.error(e); }
-        try{ await finish(reason || "finish"); } catch(e){ console.error(e); }
-        location.href = MENU_URL;
-      },
-
-      // Just return to menu (no save)
-      toMenu: async (reason)=>{
-        try{ await finish(reason || "exit"); } catch(e){ console.error(e); }
-        location.href = MENU_URL;
-      },
-
+      finish: async (reason)=>{ await finish(reason || "completed"); },
       track: (type, data)=>push(type, data),
     };
   }

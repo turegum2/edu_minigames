@@ -107,6 +107,10 @@
           <span class="pill" id="authStatePill">не авторизован</span>
         </div>
         <div class="bd">
+          <div id="authStepChecking" style="display:none;">
+            <div class="muted">Проверяем сессию…</div>
+          </div>
+
           <div id="authStepPhone">
             <div class="muted">Введите номер телефона. На него придёт код подтверждения.</div>
             <div style="height:10px"></div>
@@ -165,9 +169,8 @@
     </div>
   </div>
 
-  <script src="/platform/client.js?v=20251228_03"></script>
+  <script src="/platform/client.js"></script>
   <script>
-    const PLATFORM_ASSET_VER = "20251228_03";
     // ---------- UI helpers ----------
     const $ = (id)=>document.getElementById(id);
     const envPill = $("envPill");
@@ -180,6 +183,7 @@
     const phoneErr = $("phoneErr");
     const debugCodeHint = $("debugCodeHint");
 
+    const authStepChecking = $("authStepChecking");
     const authStepPhone = $("authStepPhone");
     const authStepCode = $("authStepCode");
     const codeInput = $("codeInput");
@@ -200,15 +204,30 @@
 
     const nextUrl = new URL(location.href).searchParams.get("next");
 
-    function fmtStars(n){
-      const x = Math.max(0, Number.isFinite(n)? n : 0);
-      return "★".repeat(Math.min(5, x)) + "☆".repeat(Math.max(0, 5-x));
+
+    const GAME_MAX_STARS = {
+      parabola: 18,
+      balancer: 36,
+      graph_master: 36,
+      chemical_detective: 36,
+      constructor: 36,
+    };
+
+    function fmtScore(stars, gameId){
+      const x = Math.max(0, Number.isFinite(stars) ? stars : 0);
+      const max = GAME_MAX_STARS[gameId];
+      return (typeof max === "number" && max > 0) ? `${x}/${max}` : String(x);
     }
 
+
     function showStep(step){
+      // step: checking | phone | code | profile | hidden
+      authCard.style.display = (step==="hidden") ? "none" : "";
+      authStepChecking.style.display = (step==="checking") ? "" : "none";
       authStepPhone.style.display = (step==="phone") ? "" : "none";
       authStepCode.style.display  = (step==="code")  ? "" : "none";
       profileStep.style.display   = (step==="profile") ? "" : "none";
+
       phoneErr.textContent = "";
       codeErr.textContent = "";
       nameErr.textContent = "";
@@ -241,8 +260,8 @@
           <div>
             <div class="gname">${g.title}</div>
             <div class="muted" style="margin-top:4px;">
-              Последний: <span class="stars">${fmtStars(g.last_stars||0)}</span>
-              &nbsp;•&nbsp; Рекорд: <span class="stars">${fmtStars(g.best_stars||0)}</span>
+              Последний: <span class="stars">${fmtScore(g.last_stars||0, g.game_id)}</span>
+              &nbsp;•&nbsp; Рекорд: <span class="stars">${fmtScore(g.best_stars||0, g.game_id)}</span>
               ${g.has_save ? "&nbsp;•&nbsp; Есть сохранение" : ""}
             </div>
           </div>
@@ -256,7 +275,7 @@
           if(!btn) return;
           const gameId = btn.getAttribute("data-id");
           const act = btn.getAttribute("data-act");
-          const url = `/games/${gameId}.html?mode=${act==="load" ? "load" : "new"}&v=${encodeURIComponent(PLATFORM_ASSET_VER)}`;
+          const url = `/games/${gameId}.html?mode=${act==="load" ? "load" : "new"}`;
           location.href = url;
         });
         gamesList.appendChild(wrap);
@@ -266,27 +285,47 @@
     // ---------- Auth flow ----------
     async function refreshMe(){
       const me = await PlatformApi.meGet();
-      if(!me?.ok) return null;
-      return me;
+      return me || { ok:false, error:"no_response" };
     }
 
     async function boot(){
       envPill.textContent = (location.host.includes("localhost") || location.host.includes("127.0.0.1")) ? "локально" : "облако";
+
+      const hasToken = !!PlatformApi.getToken();
+      if(hasToken) showStep("checking");
+      else showStep("phone");
+
       const me = await refreshMe();
-      if(me){
+      if(me && me.ok){
         // если имя отсутствует — попросим имя
+        setAuthedUI(me.user);
+
         if(!me.user?.name){
-          setAuthedUI(me.user);
           showStep("profile");
-        } else {
-          setAuthedUI(me.user);
-          showStep("phone"); // скрыто карточкой кабинета
-          if(nextUrl){
-            try{
-              const u = new URL(nextUrl, location.origin);
-              if(u.origin === location.origin) location.href = u.pathname + u.search;
-            }catch(_){}
-          }
+          return;
+        }
+
+        // штатный режим: скрываем карточку входа
+        showStep("hidden");
+
+        if(nextUrl){
+          try{
+            const u = new URL(nextUrl, location.origin);
+            if(u.origin === location.origin) location.href = u.pathname + u.search;
+          }catch(_){}
+        }
+        return;
+      }
+
+      // token есть, но /api/me не ответил/ошибка — не разлогиниваем, кроме явного 401
+      if(hasToken){
+        const err = String(me?.error || "");
+        const isUnauth = (err === "unauthorized") || err.includes("401");
+        if(isUnauth) PlatformApi.clearToken();
+      }
+
+      setAnonUI();
+    }
         }
       } else {
         setAnonUI();
@@ -333,14 +372,15 @@
         }
         PlatformApi.setToken(res.token);
         const me = await refreshMe();
-        if(!me){ codeErr.textContent="Не удалось получить профиль."; return; }
+        if(!me || !me.ok){ codeErr.textContent="Не удалось получить профиль."; return; }
 
         setAuthedUI(me.user);
 
-        if(!me.user.name){
+        if(!me.user?.name){
           showStep("profile");
           nameInput.focus();
         } else {
+          showStep("hidden");
           if(nextUrl){
             try{
               const u = new URL(nextUrl, location.origin);
@@ -348,7 +388,7 @@
             }catch(_){}
           }
         }
-      } finally {
+} finally {
         verifyBtn.disabled = false;
       }
     };
@@ -363,7 +403,10 @@
         if(!res.ok){ nameErr.textContent = res.error || "Не удалось сохранить имя."; return; }
         nameOk.textContent = "Сохранено.";
         const me = await refreshMe();
-        if(me) setAuthedUI(me.user);
+        if(me && me.ok){
+          setAuthedUI(me.user);
+          if(me.user?.name) showStep("hidden");
+        }
       } finally {
         saveNameBtn.disabled = false;
       }
