@@ -12,9 +12,9 @@
   const GAME_TITLES = {
     "parabola": "Парабола",
     "balancer": "Балансир",
-    "chem_detective": "Химический детектив",
-    "molecule_builder": "Молекулярный конструктор",
-    "graph_master": "График мастер"
+    "chemical_detective": "Химический детектив",
+    "constructor": "Молекулярный конструктор",
+    "graph_master": "Графики функций"
   };
 
   const GAME_TITLE = GAME_TITLES[GAME_ID] || GAME_ID;
