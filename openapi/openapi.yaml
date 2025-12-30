@@ -43,7 +43,7 @@ paths:
             type: string
       x-yc-apigateway-integration:
         type: cloud_functions
-        function_id: "${BACKEND_FUNCTION_ID}"
+        function_id: ${API_FUNCTION_ID}
         service_account_id: "${SERVICE_ACCOUNT_ID}"
         payload_format_version: "1.0"
       responses:
