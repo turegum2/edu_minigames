@@ -341,13 +341,21 @@
       { okText: "Сохранить и выйти", cancelText: "Выйти без сохранения" }
     );
 
-    try {
-      if(wantSave) await saveNow();
-      const completed = (game && game.isCompleted) ? game.isCompleted() : false;
-      await finish(completed ? "finish" : "exit");
-    } finally {
-      location.href = MENU_URL;
+    if(wantSave){
+      const saveResult = await saveNow();
+      if(!saveResult.ok){
+        // Даём пользователю увидеть ошибку и решить что делать
+        const forceExit = await confirmDialog(
+          "Не удалось сохранить. Всё равно выйти?",
+          { okText: "Выйти", cancelText: "Остаться" }
+        );
+        if(!forceExit) return; // Пользователь решил остаться
+      }
     }
+
+    const completed = (game && game.isCompleted) ? game.isCompleted() : false;
+    await finish(completed ? "finish" : "exit");
+    location.href = MENU_URL;
   }
 
   async function boot(){
