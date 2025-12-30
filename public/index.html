@@ -1084,6 +1084,7 @@
     }
 
     function closeTestModal() {
+      testModal.classList.remove("active");
       testModal.style.display = "none";
       testTitle.textContent = "";
       testInfo.textContent = "";
@@ -1113,7 +1114,12 @@
         ? "Перед первой попыткой игры (в целях участия в исследовании проекта) нужно пройти входное тестирование. Его нельзя обойти — без него игра не начнётся."
         : "Итоговое тестирование доступно после достижения порога звёзд. Выберите ответы и нажмите «Ответить».";
 
-      testModal.style.display = "flex";
+      testModal.style.display = "";
+      testModal.classList.add("active");
+
+      testModal.addEventListener("click", (e) => {
+        if (e.target === testModal) closeTestModal();
+      });
 
       const getRes = await PlatformApi.testGet(gameId, kind);
       if (!getRes || !getRes.ok) {
