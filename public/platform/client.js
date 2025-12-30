@@ -15,12 +15,16 @@
     // поддержим оба имени на всякий случай
     return normBase(w.__API_BASE__ || w.__API_BASE_URL__ || "");
   }
+  
+  // Fallback URL - используется если нигде не задан __API_BASE__
+  const DEFAULT_API_BASE = "https://d5doad2jmtcqeb9gg6ko.yl4tuxdu.apigw.yandexcloud.net";
+
   function getApiBase(){
     const fromSelf = readBaseFrom(window);
     const fromParent = (window.parent && window.parent !== window) ? readBaseFrom(window.parent) : "";
     const fromStorage = normBase(localStorage.getItem(API_BASE_KEY) || "");
 
-    const base = fromSelf || fromParent || fromStorage;
+    const base = fromSelf || fromParent || fromStorage || DEFAULT_API_BASE;
     if(base) localStorage.setItem(API_BASE_KEY, base);
     return base;
   }
