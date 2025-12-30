@@ -96,6 +96,18 @@
         events: Array.isArray(events) ? events : []
       });
     },
+
+    // ---- tests (entry/exit) ----
+    testGet(gameId, kind){
+      return request(`/api/games/${encodeURIComponent(gameId)}/tests/${encodeURIComponent(kind)}`, { method: "GET" });
+    },
+    testSubmit(gameId, kind, answers){
+      return request(`/api/games/${encodeURIComponent(gameId)}/tests/${encodeURIComponent(kind)}/submit`, {
+        method: "POST",
+        body: { answers: answers || {} }
+      });
+    },
+
   };
 
   window.PlatformApi = PlatformApi;

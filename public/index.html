@@ -605,6 +605,18 @@
         width: 100%;
       }
     }
+  
+    /* ---- tests modal ---- */
+    .test-modal { max-width: 820px; }
+    .test-q { padding: 12px; border: 1px solid rgba(255,255,255,0.10); border-radius: 12px; margin-bottom: 10px; }
+    .test-q-title { font-weight: 700; margin-bottom: 10px; }
+    .test-options { display: grid; gap: 8px; }
+    .test-option { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); cursor: pointer; }
+    .test-option input { margin-top: 3px; }
+    .test-option.correct { border-color: rgba(34,197,94,0.75); background: rgba(34,197,94,0.12); }
+    .test-option.wrong { border-color: rgba(239,68,68,0.75); background: rgba(239,68,68,0.10); }
+    .test-q-error { margin-top: 8px; font-size: 12px; color: rgba(255,255,255,0.85); }
+
   </style>
 </head>
 <body>
@@ -718,10 +730,10 @@
   <script>
     window.__API_BASE__ = "https://d5doad2jmtcqeb9gg6ko.yl4tuxdu.apigw.yandexcloud.net";
   </script>
-  <script src="/platform/client.js?v=20251228_05"></script>
+  P251230_01"></script>
   <script>
     // Fixed script: v20251228_05 + RU phone lock + Telegram texts
-    const PLATFORM_ASSET_VER = "20251228_05";
+    const PLATFORM_ASSET_VER = "20251230_01";
 
     const $ = (id) => document.getElementById(id);
     const authCard = $("authCard");
@@ -757,7 +769,22 @@
     const userPill = $("userPill");
     const gamesList = $("gamesList");
 
-    const nextUrl = new URL(location.href).searchParams.get("next");
+    // --- tests modal refs ---
+    const testModal = $("testModal");
+    const testTitle = $("testTitle");
+    const testInfo = $("testInfo");
+    const testContent = $("testContent");
+    const testError = $("testError");
+    const testScore = $("testScore");
+    const testCloseX = $("testCloseX");
+    const testCancelBtn = $("testCancelBtn");
+    const testSubmitBtn = $("testSubmitBtn");
+
+    let gamesById = {};
+
+    const urlParams = new URL(location.href).searchParams;
+    const nextUrl = urlParams.get("next");
+    const entryTestGame = urlParams.get("entry_test");
 
     // --- RU phone input: fixed +7 and exactly 10 digits after it ---
     function ruOnlyDigits(s) {
@@ -946,14 +973,25 @@
       caretToEnd(phoneInput);
     }
 
+    
     function renderGames(games) {
       gamesList.innerHTML = "";
+      gamesById = {};
       for (const g of games) {
+        gamesById[g.game_id] = g;
+
         // Используем русское название из маппинга или оригинальное
         const displayTitle = GAME_TITLES[g.game_id] || g.title;
-        
+
         const wrap = document.createElement("div");
         wrap.className = "game-item";
+
+        const exitBtnText = g.exit_test_done ? "Тестирование пройдено" : "Итоговое тестирование";
+        const exitBtnDisabled = g.exit_test_done || !g.can_take_exit_test;
+        const exitHint = g.exit_test_done
+          ? "Итоговое тестирование уже пройдено"
+          : (g.can_take_exit_test ? "Пройти итоговое тестирование" : `Доступно после ${g.exit_threshold}/${g.max_stars} звёзд`);
+
         wrap.innerHTML = `
           <div class="game-header">
             <div class="game-name">${displayTitle}</div>
@@ -962,23 +1000,268 @@
             <div class="game-stat">Последний: <span>${fmtScore(g.last_stars || 0, g.game_id)}</span></div>
             <div class="game-stat">Рекорд: <span>${fmtScore(g.best_stars || 0, g.game_id)}</span></div>
             ${g.has_save ? '<div class="game-stat has-save">✓ Есть сохранение</div>' : ''}
+            ${g.needs_entry_test ? '<div class="game-stat warn">⚠ Перед первой игрой нужно пройти входной тест</div>' : ''}
           </div>
           <div class="game-actions">
             <button data-act="new" data-id="${g.game_id}">Играть заново</button>
             <button class="secondary" data-act="load" data-id="${g.game_id}" ${g.has_save ? "" : "disabled"}>Загрузить</button>
+            <button class="secondary" data-act="exit_test" data-id="${g.game_id}" ${exitBtnDisabled ? "disabled" : ""} title="${exitHint}">${exitBtnText}</button>
           </div>
         `;
-        wrap.addEventListener("click", (e) => {
+
+        wrap.addEventListener("click", async (e) => {
           const btn = e.target.closest("button");
           if (!btn) return;
           const gameId = btn.getAttribute("data-id");
           const act = btn.getAttribute("data-act");
+
           const url = `/games/${gameId}.html?mode=${act === "load" ? "load" : "new"}&v=${encodeURIComponent(PLATFORM_ASSET_VER)}`;
-          location.href = url;
+
+          if (act === "new") {
+            const gi = gamesById[gameId];
+            if (gi && gi.needs_entry_test) {
+              await openTestModal("entry", gameId, url);
+              return;
+            }
+            location.href = url;
+            return;
+          }
+
+          if (act === "load") {
+            location.href = url;
+            return;
+          }
+
+          if (act === "exit_test") {
+            await openTestModal("exit", gameId, null);
+            return;
+          }
         });
+
         gamesList.appendChild(wrap);
       }
     }
+
+
+    
+    // ---------------- tests modal logic ----------------
+
+    function showTestError(msg) {
+      testError.style.display = "";
+      testError.textContent = msg;
+    }
+    function hideTestError() {
+      testError.style.display = "none";
+      testError.textContent = "";
+    }
+    function showTestScore(msg) {
+      testScore.style.display = "";
+      testScore.textContent = msg;
+    }
+    function hideTestScore() {
+      testScore.style.display = "none";
+      testScore.textContent = "";
+    }
+
+    function closeTestModal() {
+      testModal.style.display = "none";
+      testTitle.textContent = "";
+      testInfo.textContent = "";
+      testContent.innerHTML = "";
+      hideTestError();
+      hideTestScore();
+      testSubmitBtn.disabled = false;
+      testSubmitBtn.textContent = "Ответить";
+      testCancelBtn.style.display = "";
+    }
+
+    testCloseX.addEventListener("click", closeTestModal);
+    testCancelBtn.addEventListener("click", closeTestModal);
+
+    async function openTestModal(kind, gameId, nextHref) {
+      hideTestError();
+      hideTestScore();
+      testContent.innerHTML = "";
+      testSubmitBtn.disabled = true;
+      testSubmitBtn.textContent = "Загрузка…";
+
+      const displayTitle = GAME_TITLES[gameId] || gameId;
+      const isEntry = kind === "entry";
+
+      testTitle.textContent = isEntry ? `Входное тестирование — ${displayTitle}` : `Итоговое тестирование — ${displayTitle}`;
+      testInfo.textContent = isEntry
+        ? "Перед первой попыткой игры (в целях участия в исследовании проекта) нужно пройти входное тестирование. Его нельзя обойти — без него игра не начнётся."
+        : "Итоговое тестирование доступно после достижения порога звёзд. Выберите ответы и нажмите «Ответить».";
+
+      testModal.style.display = "flex";
+
+      const getRes = await PlatformApi.testGet(gameId, kind);
+      if (!getRes || !getRes.ok) {
+        showTestError("Не удалось загрузить тест. Попробуйте ещё раз.");
+        testSubmitBtn.disabled = false;
+        testSubmitBtn.textContent = "Ответить";
+        return;
+      }
+
+      if (getRes.done) {
+        showTestScore(`Тестирование уже пройдено: ${getRes.result?.score ?? "?"}/${getRes.result?.max_score ?? "?"}`);
+        testSubmitBtn.textContent = isEntry ? "Перейти к игре" : "Закрыть";
+        testSubmitBtn.disabled = false;
+        testCancelBtn.style.display = "none";
+        testSubmitBtn.onclick = async () => {
+          closeTestModal();
+          if (isEntry && nextHref) location.href = nextHref;
+          if (!isEntry) {
+            const me = await refreshMe();
+            if (me && me.ok) setAuthedUI(me.user);
+          }
+        };
+        return;
+      }
+
+      const test = getRes.test;
+      const qs = test?.questions || [];
+      if (!qs.length) {
+        showTestError("В тесте нет вопросов.");
+        testSubmitBtn.disabled = false;
+        testSubmitBtn.textContent = "Ответить";
+        return;
+      }
+
+      // render questions
+      for (let i = 0; i < qs.length; i++) {
+        const q = qs[i];
+        const pick = Number(q.pick || 1);
+        const isMulti = pick > 1;
+
+        const qWrap = document.createElement("div");
+        qWrap.className = "test-q";
+        qWrap.setAttribute("data-qid", q.id);
+        qWrap.setAttribute("data-pick", String(pick));
+
+        const title = document.createElement("div");
+        title.className = "test-q-title";
+        title.textContent = `${i + 1}. ${q.text}`;
+        qWrap.appendChild(title);
+
+        const opts = document.createElement("div");
+        opts.className = "test-options";
+
+        for (const o of (q.options || [])) {
+          const lab = document.createElement("label");
+          lab.className = "test-option";
+          const inp = document.createElement("input");
+          inp.type = isMulti ? "checkbox" : "radio";
+          inp.name = q.id;
+          inp.value = o.id;
+
+          const span = document.createElement("span");
+          span.textContent = `${o.id}) ${o.text}`;
+
+          lab.appendChild(inp);
+          lab.appendChild(span);
+          opts.appendChild(lab);
+        }
+        qWrap.appendChild(opts);
+
+        const err = document.createElement("div");
+        err.className = "test-q-error";
+        err.style.display = "none";
+        qWrap.appendChild(err);
+
+        testContent.appendChild(qWrap);
+      }
+
+      // submit handler
+      async function submit() {
+        hideTestError();
+        hideTestScore();
+
+        // collect + validate
+        const answers = {};
+        let firstBad = null;
+
+        for (const qEl of testContent.querySelectorAll(".test-q")) {
+          const qid = qEl.getAttribute("data-qid");
+          const pick = Number(qEl.getAttribute("data-pick") || "1");
+          const checked = Array.from(qEl.querySelectorAll("input:checked")).map((i) => i.value);
+          const errEl = qEl.querySelector(".test-q-error");
+
+          if (checked.length !== pick) {
+            if (errEl) {
+              errEl.style.display = "";
+              errEl.textContent = pick === 1 ? "Выберите 1 вариант ответа." : `Выберите ровно ${pick} варианта.`;
+            }
+            if (!firstBad) firstBad = qEl;
+          } else {
+            if (errEl) {
+              errEl.style.display = "none";
+              errEl.textContent = "";
+            }
+            answers[qid] = checked;
+          }
+        }
+
+        if (firstBad) {
+          showTestError("Ответьте на все вопросы (и соблюдайте количество вариантов).");
+          firstBad.scrollIntoView({ behavior: "smooth", block: "center" });
+          return;
+        }
+
+        testSubmitBtn.disabled = true;
+        testSubmitBtn.textContent = "Проверка…";
+
+        const res = await PlatformApi.testSubmit(gameId, kind, answers);
+        if (!res || !res.ok) {
+          const msg =
+            res?.error === "exit_test_locked"
+              ? `Итоговый тест пока недоступен: нужно ${res.required_stars} звёзд (сейчас рекорд ${res.best_stars}).`
+              : (res?.error === "test_already_done" ? "Тестирование уже пройдено." : "Не удалось отправить ответы. Попробуйте ещё раз.");
+          showTestError(msg);
+          testSubmitBtn.disabled = false;
+          testSubmitBtn.textContent = "Ответить";
+          return;
+        }
+
+        // highlight correct
+        const correct = res.correct || {};
+        for (const qEl of testContent.querySelectorAll(".test-q")) {
+          const qid = qEl.getAttribute("data-qid");
+          const corr = new Set((correct[qid] || []).map(String));
+          for (const lab of qEl.querySelectorAll(".test-option")) {
+            const inp = lab.querySelector("input");
+            if (!inp) continue;
+            const val = String(inp.value);
+            if (corr.has(val)) {
+              lab.classList.add("correct");
+            } else if (inp.checked) {
+              lab.classList.add("wrong");
+            }
+            inp.disabled = true;
+          }
+        }
+
+        showTestScore(`Вы набрали ${res.score} из ${res.max_score} баллов`);
+        testSubmitBtn.disabled = false;
+        testSubmitBtn.textContent = isEntry ? "Начать игру" : "Закрыть";
+        testCancelBtn.style.display = "none";
+
+        testSubmitBtn.onclick = async () => {
+          closeTestModal();
+          // refresh cabinet state after test
+          const me = await refreshMe();
+          if (me && me.ok) setAuthedUI(me.user);
+
+          if (isEntry && nextHref) location.href = nextHref;
+        };
+      }
+
+      testSubmitBtn.onclick = submit;
+      testSubmitBtn.disabled = false;
+      testSubmitBtn.textContent = "Ответить";
+      testCancelBtn.style.display = "";
+    }
+
 
     async function refreshMe() {
       if (!window.PlatformApi) return { ok: false, error: "PlatformApi_not_loaded" };
@@ -1013,6 +1296,17 @@
         // Имя есть - показываем полный интерфейс
         setAuthedUI(me.user);
         showStep("hidden");
+
+        // Если нас вернули из игры из-за обязательного входного теста — сначала открываем тест,
+        // и только после успешного прохождения переходим на nextUrl.
+        if (entryTestGame) {
+          const gi = (me.user?.games || []).find((x) => x.game_id === entryTestGame);
+          if (gi && gi.needs_entry_test) {
+            await openTestModal("entry", entryTestGame, nextUrl);
+            return;
+          }
+          // тест не нужен (уже есть статистика или тест уже пройден) — продолжаем по nextUrl
+        }
 
         if (nextUrl) {
           try {
@@ -1205,5 +1499,26 @@
 
     boot();
   </script>
+
+  <!-- Модальное окно тестирования (входное/итоговое) -->
+  <div class="modal-overlay" id="testModal" style="display:none;">
+    <div class="modal test-modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="testTitle"></h3>
+        <button class="modal-close" id="testCloseX" title="Закрыть">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-text" id="testInfo"></p>
+        <div id="testContent"></div>
+        <div class="pill warning" id="testError" style="display:none; margin-top:12px;"></div>
+        <div class="pill success" id="testScore" style="display:none; margin-top:12px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="secondary" id="testCancelBtn">Отмена</button>
+        <button id="testSubmitBtn">Ответить</button>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

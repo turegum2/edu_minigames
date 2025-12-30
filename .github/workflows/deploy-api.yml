@@ -5,6 +5,7 @@ on:
     branches: [ "main" ]
     paths:
       - "backend/**"
+      - "openapi/**"
       - ".github/workflows/deploy-api.yml"
 
 jobs:

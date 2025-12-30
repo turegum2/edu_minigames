@@ -24,12 +24,25 @@
   const MENU_URL = url.searchParams.get("menu") || "/";
 
   function menuHrefWithNext(nextPath){
+    return menuHrefWithParams({ next: nextPath });
+  }
+
+  function menuHrefWithParams(params){
     try {
       const u = new URL(MENU_URL, location.origin);
-      u.searchParams.set("next", nextPath);
+      for(const [k,v] of Object.entries(params || {})){
+        if(v === undefined || v === null) continue;
+        u.searchParams.set(k, String(v));
+      }
       return u.pathname + u.search;
     } catch(_){
-      return `/?next=${encodeURIComponent(nextPath)}`;
+      const sp = new URLSearchParams();
+      for(const [k,v] of Object.entries(params || {})){
+        if(v === undefined || v === null) continue;
+        sp.set(k, String(v));
+      }
+      const qs = sp.toString();
+      return `/?${qs}`;
     }
   }
 
@@ -377,7 +390,17 @@
     });
 
     const st = await PlatformApi.sessionStart(GAME_ID, { mode: MODE });
-    if(st && st.ok) sessionId = st.session_id;
+    if(st && st.ok){
+      sessionId = st.session_id;
+    }else{
+      // If entry test is required, redirect to menu with a hint
+      if(st && st.error === "entry_test_required"){
+        toast("Перед первой игрой нужно пройти входное тестирование.");
+        const nextPath = location.pathname + location.search;
+        location.href = menuHrefWithParams({ next: nextPath, entry_test: GAME_ID });
+        return;
+      }
+    }
 
     if(MODE === "new" && game.resetToNew){
       try{ game.resetToNew(); }catch(_ ){}
