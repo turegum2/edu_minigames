@@ -727,13 +727,33 @@
     </div>
   </div>
 
-  <script>
+  
+  <div class="modal-overlay" id="testModal" style="display:none;">
+    <div class="modal test-modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="testTitle"></h3>
+        <button class="modal-close" id="testCloseX" title="Закрыть">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-text" id="testInfo"></p>
+        <div id="testContent"></div>
+        <div class="pill warning" id="testError" style="display:none; margin-top:12px;"></div>
+        <div class="pill success" id="testScore" style="display:none; margin-top:12px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="secondary" id="testCancelBtn">Отмена</button>
+        <button id="testSubmitBtn">Ответить</button>
+      </div>
+    </div>
+  </div>
+
+<script>
     window.__API_BASE__ = "https://d5doad2jmtcqeb9gg6ko.yl4tuxdu.apigw.yandexcloud.net";
   </script>
-  P251230_01"></script>
+  <script src="/platform/client.js?v=20251230_02"></script>
   <script>
     // Fixed script: v20251228_05 + RU phone lock + Telegram texts
-    const PLATFORM_ASSET_VER = "20251230_01";
+    const PLATFORM_ASSET_VER = "20251230_02";
 
     const $ = (id) => document.getElementById(id);
     const authCard = $("authCard");
@@ -1501,24 +1521,5 @@
   </script>
 
   <!-- Модальное окно тестирования (входное/итоговое) -->
-  <div class="modal-overlay" id="testModal" style="display:none;">
-    <div class="modal test-modal">
-      <div class="modal-header">
-        <h3 class="modal-title" id="testTitle"></h3>
-        <button class="modal-close" id="testCloseX" title="Закрыть">✕</button>
-      </div>
-      <div class="modal-body">
-        <p class="modal-text" id="testInfo"></p>
-        <div id="testContent"></div>
-        <div class="pill warning" id="testError" style="display:none; margin-top:12px;"></div>
-        <div class="pill success" id="testScore" style="display:none; margin-top:12px;"></div>
-      </div>
-      <div class="modal-footer">
-        <button class="secondary" id="testCancelBtn">Отмена</button>
-        <button id="testSubmitBtn">Ответить</button>
-      </div>
-    </div>
-  </div>
-
-</body>
+  </body>
 </html>

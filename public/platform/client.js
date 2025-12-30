@@ -1,6 +1,6 @@
 /* global window, fetch */
 (function(){
-  window.__PLATFORM_CLIENT_VERSION__ = "20251228_03";
+  window.__PLATFORM_CLIENT_VERSION__ = "20251230_02";
 
   const TOKEN_KEY = "platform_token_v1";
 
@@ -99,14 +99,14 @@
 
     // ---- tests (entry/exit) ----
     testGet(gameId, kind){
-      return request(`/api/games/${encodeURIComponent(gameId)}/tests/${encodeURIComponent(kind)}`, { method: "GET" });
+      return request("GET", `/api/games/${encodeURIComponent(gameId)}/tests/${encodeURIComponent(kind)}`);
     },
     testSubmit(gameId, kind, answers){
-      return request(`/api/games/${encodeURIComponent(gameId)}/tests/${encodeURIComponent(kind)}/submit`, {
-        method: "POST",
-        body: { answers: answers || {} }
+      return request("POST", `/api/games/${encodeURIComponent(gameId)}/tests/${encodeURIComponent(kind)}/submit`, {
+        answers: answers || {}
       });
     },
+
 
   };
 
