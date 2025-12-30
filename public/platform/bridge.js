@@ -9,6 +9,16 @@
     return m ? decodeURIComponent(m[1]) : "unknown";
   })();
 
+  const GAME_TITLES = {
+    "parabola": "Парабола",
+    "balancer": "Балансир",
+    "chem_detective": "Химический детектив",
+    "molecule_builder": "Молекулярный конструктор",
+    "graph_master": "График мастер"
+  };
+
+  const GAME_TITLE = GAME_TITLES[GAME_ID] || GAME_ID;
+
   const url = new URL(location.href);
   const MODE = url.searchParams.get("mode") || "new";
   const MENU_URL = url.searchParams.get("menu") || "/";
@@ -30,11 +40,17 @@
 
   // -------- overlay UI --------
   function createOverlay(){
+    const canvas = document.querySelector("canvas");
+    
+    // Создаём wrapper для canvas и кнопок
+    const wrapper = document.createElement("div");
+    wrapper.style.display = "flex";
+    wrapper.style.flexDirection = "column";
+    wrapper.style.alignItems = "flex-end";
+    wrapper.style.gap = "12px";
+
+    // Панель с кнопками
     const root = document.createElement("div");
-    root.style.position = "fixed";
-    root.style.top = "12px";
-    root.style.right = "12px";
-    root.style.zIndex = "99999";
     root.style.display = "flex";
     root.style.gap = "8px";
     root.style.alignItems = "center";
@@ -46,7 +62,7 @@
     root.style.boxShadow = "0 12px 50px rgba(0,0,0,0.35)";
 
     const pill = document.createElement("div");
-    pill.textContent = GAME_ID;
+    pill.textContent = GAME_TITLE;
     pill.style.font = "600 12px system-ui, sans-serif";
     pill.style.color = "rgba(255,255,255,.85)";
     pill.style.padding = "6px 10px";
@@ -66,7 +82,20 @@
     root.appendChild(btnSave);
     root.appendChild(btnExit);
 
-    document.body.appendChild(root);
+    // Если есть canvas, оборачиваем его вместе с кнопками
+    if (canvas && canvas.parentNode) {
+      canvas.parentNode.insertBefore(wrapper, canvas);
+      wrapper.appendChild(root);
+      wrapper.appendChild(canvas);
+    } else {
+      // Fallback: fixed позиционирование
+      root.style.position = "fixed";
+      root.style.top = "12px";
+      root.style.right = "12px";
+      root.style.zIndex = "99999";
+      document.body.appendChild(root);
+    }
+
     return { root, btnSave, btnExit };
   }
 
