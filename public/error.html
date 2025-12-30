@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Страница не найдена — Учебные мини-игры</title>
+  <link rel="stylesheet" href="/assets/fonts/nunito/wght.css">
+  <style>
+    :root {
+      --bg1: #1a1a2e;
+      --bg2: #16213e;
+      --bg3: #0f3460;
+      --card: rgba(15, 25, 45, 0.92);
+      --card-border: rgba(79, 172, 254, 0.3);
+      --card-glow: rgba(79, 172, 254, 0.1);
+      --muted: #90A4AE;
+      --text: #FFFFFF;
+      --text-secondary: #B0BEC5;
+      --accent: #4FC3F7;
+      --accent-glow: rgba(79, 172, 254, 0.4);
+      --good: #81C784;
+      --good-glow: rgba(129, 199, 132, 0.3);
+      --line: rgba(255,255,255,0.1);
+      --danger: #EF5350;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: "Nunito Variable", system-ui, -apple-system, sans-serif;
+      color: var(--text);
+    }
+
+    body {
+      background: linear-gradient(135deg, var(--bg1) 0%, var(--bg2) 50%, var(--bg3) 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px;
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    body::before,
+    body::after {
+      content: '';
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(80px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    body::before {
+      width: 500px;
+      height: 500px;
+      background: rgba(79, 172, 254, 0.08);
+      top: -100px;
+      left: -100px;
+    }
+
+    body::after {
+      width: 400px;
+      height: 400px;
+      background: rgba(239, 83, 80, 0.06);
+      bottom: -50px;
+      right: -50px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 800px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .logo {
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #4FC3F7 0%, #81C784 100%);
+      box-shadow:
+        0 8px 32px rgba(79, 172, 254, 0.3),
+        0 0 20px rgba(129, 199, 132, 0.2);
+      flex-shrink: 0;
+      cursor: pointer;
+      transition: transform 0.2s ease;
+      display: block;
+    }
+
+    .logo:hover { transform: scale(1.05); }
+
+    .header-text { flex: 1; }
+
+    .title {
+      font-size: 24px;
+      font-weight: 800;
+      margin: 0;
+      letter-spacing: 0.3px;
+      background: linear-gradient(90deg, #FFFFFF, #B0BEC5);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: var(--muted);
+      margin: 4px 0 0 0;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.4),
+        0 0 40px var(--card-glow),
+        inset 0 1px 0 rgba(255,255,255,0.05);
+      backdrop-filter: blur(20px);
+      overflow: hidden;
+      margin-bottom: 20px;
+      animation: fadeIn 0.4s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .card-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .pill {
+      font-size: 11px;
+      font-weight: 700;
+      color: rgba(255,255,255,0.86);
+      border: 1px solid rgba(239,83,80,0.35);
+      padding: 5px 10px;
+      border-radius: 20px;
+      background: rgba(239,83,80,0.10);
+      user-select: none;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .card-body { padding: 24px; }
+
+    .big {
+      font-size: 44px;
+      font-weight: 900;
+      letter-spacing: 1px;
+      margin: 0 0 8px 0;
+      line-height: 1;
+      background: linear-gradient(90deg, #FFFFFF, rgba(239,83,80,0.95));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .text {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text-secondary);
+      margin: 0 0 14px 0;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.16);
+      cursor: pointer;
+      text-decoration: none;
+      font: 700 13px system-ui, -apple-system, sans-serif;
+      color: rgba(255,255,255,.92);
+      background: rgba(255,255,255,0.06);
+      transition: transform .15s ease, background .15s ease, color .15s ease;
+    }
+
+    .btn.primary {
+      background: linear-gradient(180deg, rgba(93,214,255,.22), rgba(93,214,255,.06));
+      border-color: rgba(79, 172, 254, 0.28);
+    }
+
+    .btn:hover { transform: translateY(-1px); background: rgba(255,255,255,0.08); }
+    .btn.primary:hover { background: linear-gradient(180deg, rgba(93,214,255,.30), rgba(93,214,255,.10)); }
+
+    .footer-info {
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 24px;
+      padding: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .footer-info p { margin: 4px 0; }
+
+    @media (max-width: 500px) {
+      body { padding: 16px; }
+      .title { font-size: 20px; }
+      .card-body { padding: 16px; }
+      .big { font-size: 38px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <a href="/" class="logo" title="На главную"></a>
+      <div class="header-text">
+        <h1 class="title">Учебные мини-игры</h1>
+        <p class="subtitle">Страница не найдена</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Ошибка</h2>
+        <span class="pill">404</span>
+      </div>
+      <div class="card-body">
+        <p class="big">404</p>
+        <p class="text">
+          Похоже, такой страницы нет или ссылка устарела.
+          Если вы переходили по ссылке «Продолжить» из меню — попробуйте вернуться на главную и открыть игру снова.
+        </p>
+
+        <div class="actions">
+          <a class="btn primary" href="/">На главную</a>
+          <button class="btn" type="button" onclick="location.reload()">Обновить</button>
+          <a class="btn" href="/policy.html">Политика ПДн</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-info">
+      <p>Учебный проект «От формул к практике через игру»</p>
+      <p>Московская международная школа, 2025</p>
+    </div>
+  </div>
+</body>
+</html>

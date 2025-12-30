@@ -3,6 +3,7 @@
   window.__PLATFORM_CLIENT_VERSION__ = "20251228_03";
 
   const TOKEN_KEY = "platform_token_v1";
+  const API_BASE = (typeof window.__API_BASE__ === "string" ? window.__API_BASE__ : "").replace(/\/+$/,"");
 
   function getToken(){ return localStorage.getItem(TOKEN_KEY) || ""; }
   function setToken(t){ localStorage.setItem(TOKEN_KEY, t); }
@@ -13,7 +14,8 @@
     const token = getToken();
     if(token) headers.Authorization = `Bearer ${token}`;
 
-    const res = await fetch(path, {
+    const url = API_BASE ? (API_BASE + path) : path;
+    const res = await fetch(url, {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,

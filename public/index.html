@@ -273,6 +273,126 @@
       box-shadow: 0 4px 20px rgba(239, 83, 80, 0.2);
     }
 
+    button.about {
+      font-size: 13px;
+      padding: 8px 16px;
+      background: rgba(79, 172, 254, 0.1);
+      border-color: rgba(79, 172, 254, 0.3);
+      color: var(--accent);
+    }
+
+    button.about:hover:not(:disabled) {
+      background: rgba(79, 172, 254, 0.2);
+      box-shadow: 0 4px 20px rgba(79, 172, 254, 0.2);
+    }
+
+    /* Модальное окно */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s ease;
+    }
+
+    .modal-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .modal {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      box-shadow: 
+        0 20px 60px rgba(0, 0, 0, 0.5),
+        0 0 40px var(--card-glow);
+      width: 90%;
+      max-width: 420px;
+      transform: scale(0.9) translateY(20px);
+      transition: transform 0.3s ease;
+    }
+
+    .modal-overlay.active .modal {
+      transform: scale(1) translateY(0);
+    }
+
+    .modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .modal-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .modal-close {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.05);
+      color: var(--muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      padding: 0;
+    }
+
+    .modal-close:hover {
+      background: rgba(255,255,255,0.1);
+      color: var(--text);
+      border-color: var(--text-secondary);
+    }
+
+    .modal-body {
+      padding: 20px;
+    }
+
+    .modal-text {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text-secondary);
+      margin: 0 0 12px 0;
+    }
+
+    .modal-text:last-of-type {
+      margin-bottom: 0;
+    }
+
+    .modal-text strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .modal-text.highlight {
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .modal-footer {
+      padding: 16px 20px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: flex-end;
+    }
+
     .msg {
       font-size: 13px;
       margin-top: 12px;
@@ -552,6 +672,7 @@
         </div>
         <div class="user-info">
           <span class="pill" id="userPill"></span>
+          <button class="about" id="aboutBtn">О программе</button>
           <button class="logout" id="logoutBtn">Выйти</button>
         </div>
       </div>
@@ -560,7 +681,36 @@
       </div>
     </div>
   </div>
+  
+  <!-- Модальное окно "О программе" -->
+  <div class="modal-overlay" id="aboutModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">О программе</h3>
+        <button class="modal-close" id="modalCloseX" title="Закрыть">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-text highlight">«От формул к практике через игру»</p>
+        <p class="modal-text">
+          Программу создали учащиеся <strong>8 «Д» класса</strong>:<br>
+          <strong>Артём Замощин</strong> и <strong>Ярослав Бурыкин</strong>
+        </p>
+        <p class="modal-text">
+          Консультант: <strong>Граськина Елена Евгеньевна</strong>
+        </p>
+        <p class="modal-text">
+          Московская международная школа, 2025 год
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="secondary" id="modalCloseBtn">Закрыть</button>
+      </div>
+    </div>
+  </div>
 
+  <script>
+    window.__API_BASE__ = "https://d5doad2jmtcqeb9gg6ko.yl4tuxdu.apigw.yandexcloud.net";
+  </script>
   <script src="/platform/client.js?v=20251228_05"></script>
   <script>
     // Fixed script: v20251228_05 + RU phone lock + Telegram texts
@@ -570,6 +720,11 @@
     const authCard = $("authCard");
     const cabCard = $("cabCard");
     const logoutBtn = $("logoutBtn");
+
+    const aboutBtn = $("aboutBtn");
+    const aboutModal = $("aboutModal");
+    const modalCloseX = $("modalCloseX");
+    const modalCloseBtn = $("modalCloseBtn");
 
     const phoneInput = $("phoneInput");
     const sendCodeBtn = $("sendCodeBtn");
@@ -1020,6 +1175,25 @@
 
     nameInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") saveNameBtn.click();
+    });
+    
+    // Модальное окно "О программе"
+    aboutBtn.addEventListener("click", () => {
+      aboutModal.classList.add("active");
+    });
+
+    modalCloseX.addEventListener("click", () => {
+      aboutModal.classList.remove("active");
+    });
+
+    modalCloseBtn.addEventListener("click", () => {
+      aboutModal.classList.remove("active");
+    });
+
+    aboutModal.addEventListener("click", (e) => {
+      if (e.target === aboutModal) {
+        aboutModal.classList.remove("active");
+      }
     });
 
     boot();
