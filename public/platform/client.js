@@ -3,7 +3,27 @@
   window.__PLATFORM_CLIENT_VERSION__ = "20251228_03";
 
   const TOKEN_KEY = "platform_token_v1";
-  const API_BASE = (typeof window.__API_BASE__ === "string" ? window.__API_BASE__ : "").replace(/\/+$/,"");
+
+  // Храним base, чтобы iframe-игры могли работать без прямого доступа к parent
+  const API_BASE_KEY = "platform_api_base_v1";
+
+  function normBase(v){
+    return (typeof v === "string" ? v.trim() : "").replace(/\/+$/,"");
+  }
+  function readBaseFrom(w){
+    if(!w) return "";
+    // поддержим оба имени на всякий случай
+    return normBase(w.__API_BASE__ || w.__API_BASE_URL__ || "");
+  }
+  function getApiBase(){
+    const fromSelf = readBaseFrom(window);
+    const fromParent = (window.parent && window.parent !== window) ? readBaseFrom(window.parent) : "";
+    const fromStorage = normBase(localStorage.getItem(API_BASE_KEY) || "");
+
+    const base = fromSelf || fromParent || fromStorage;
+    if(base) localStorage.setItem(API_BASE_KEY, base);
+    return base;
+  }
 
   function getToken(){ return localStorage.getItem(TOKEN_KEY) || ""; }
   function setToken(t){ localStorage.setItem(TOKEN_KEY, t); }
@@ -14,7 +34,8 @@
     const token = getToken();
     if(token) headers.Authorization = `Bearer ${token}`;
 
-    const url = API_BASE ? (API_BASE + path) : path;
+    const base = getApiBase();
+    const url = base ? new URL(path, base).toString() : path;
     const res = await fetch(url, {
       method,
       headers,
