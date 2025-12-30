@@ -9,7 +9,6 @@ const jwt = require("jsonwebtoken");
 const crypto = require("node:crypto");
 
 const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
-const { SNSClient, PublishCommand } = require("@aws-sdk/client-sns");
 const { Ydb } = require("ydb-sdk-lite");
 
 /**
@@ -32,11 +31,17 @@ const AWS_REGION = process.env.AWS_REGION || "ru-central1";
 const AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID || "";
 const AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY || "";
 
-const SMS_MODE = (process.env.SMS_MODE || "cns").toLowerCase(); // cns | gateway | mock
-const CNS_ENDPOINT = process.env.CNS_ENDPOINT || "https://notifications.yandexcloud.net";
-const DEBUG_OTP = (process.env.DEBUG_OTP || "0") === "1";
+// Auth delivery mode:
+// - gateway: send code via Telegram Gateway (phone must be linked to Telegram)
+// - mock: do not send anything, accept code 0000
+const SMS_MODE = (process.env.SMS_MODE || "gateway").toLowerCase(); // gateway | mock
+
 const TELEGRAM_GATEWAY_TOKEN = process.env.TELEGRAM_GATEWAY_TOKEN || "";
+const TELEGRAM_GATEWAY_BASE_URL =
+  (process.env.TELEGRAM_GATEWAY_BASE_URL || "https://gatewayapi.telegram.org/").replace(/\/+$/, "") + "/";
 const TELEGRAM_GATEWAY_TTL = Number(process.env.TELEGRAM_GATEWAY_TTL || "600"); // seconds (30..3600)
+
+const DEBUG_OTP = (process.env.DEBUG_OTP || "0") === "1";
 
 // games catalog
 const GAMES = [
@@ -50,7 +55,6 @@ const GAMES = [
 // ---- clients (lazy singletons) ----
 let ydb = null;
 let s3 = null;
-let sns = null;
 let schemaEnsured = false;
 
 function normalizePathname(p) {
@@ -78,11 +82,13 @@ function resp(statusCode, obj, extraHeaders) {
 function normalizePhone(p) {
   const s = String(p || "").trim();
   const digits = s.replace(/\D/g, "");
+
   // RU only: accept +7XXXXXXXXXX / 7XXXXXXXXXX / 8XXXXXXXXXX / XXXXXXXXXX
   let national = "";
   if (digits.length === 11 && (digits.startsWith("7") || digits.startsWith("8"))) national = digits.slice(1);
   else if (digits.length === 10) national = digits;
   else return null;
+
   if (national.length !== 10) return null;
   return "+7" + national;
 }
@@ -188,18 +194,7 @@ function getS3() {
   return s3;
 }
 
-function getSns() {
-  if (sns) return sns;
-  sns = new SNSClient({
-    region: AWS_REGION,
-    endpoint: CNS_ENDPOINT,
-    credentials:
-      AWS_ACCESS_KEY_ID && AWS_SECRET_ACCESS_KEY
-        ? { accessKeyId: AWS_ACCESS_KEY_ID, secretAccessKey: AWS_SECRET_ACCESS_KEY }
-        : undefined,
-  });
-  return sns;
-}
+// Telegram Gateway only (no Yandex Cloud Notification Service / SMS)
 
 async function ensureSchema(context) {
   if (schemaEnsured) return;
@@ -530,15 +525,11 @@ async function sendOtp(phone, code) {
     return { ok: true };
   }
 
-  if (SMS_MODE === "gateway") {
-    return await sendTelegramVerification(phone, code);
+  if (SMS_MODE !== "gateway") {
+    throw new Error(`unsupported_SMS_MODE_${SMS_MODE}`);
   }
 
-  // default: Yandex Cloud Notification Service (SNS-compatible)
-  const message = `Код подтверждения: ${code}`;
-  const client = getSns();
-  await client.send(new PublishCommand({ PhoneNumber: phone, Message: message }));
-  return { ok: true };
+  return await sendTelegramVerification(phone, code);
 }
 
 async function sendTelegramVerification(phone, code) {
@@ -547,7 +538,7 @@ async function sendTelegramVerification(phone, code) {
   const ttlRaw = Number(TELEGRAM_GATEWAY_TTL);
   const ttl = Number.isFinite(ttlRaw) ? Math.min(3600, Math.max(30, ttlRaw)) : 600;
 
-  const url = "https://gatewayapi.telegram.org/sendVerificationMessage";
+  const url = TELEGRAM_GATEWAY_BASE_URL + "sendVerificationMessage";
   const r = await fetch(url, {
     method: "POST",
     headers: {
@@ -562,7 +553,11 @@ async function sendTelegramVerification(phone, code) {
   });
 
   let j = null;
-  try { j = await r.json(); } catch (_) {}
+  try {
+    j = await r.json();
+  } catch {
+    j = null;
+  }
 
   if (!r.ok) {
     const msg = j?.error ? String(j.error) : `gateway_http_${r.status}`;
@@ -630,12 +625,18 @@ export async function handler(event, context) {
       try {
         await sendOtp(phone, code);
       } catch (e) {
+        // avoid leaving an auth code that wasn't delivered
+        try {
+          await dbDeleteAuthCode(context, phone);
+        } catch {
+          /* noop */
+        }
+
         console.log("sendOtp error:", String(e?.message || e));
-        await dbDeleteAuthCode(context, phone);
         return resp(500, {
           ok: false,
-          error: SMS_MODE === "gateway" ? "telegram_failed" : "sms_failed",
-          ...(DEBUG_OTP ? { debug_code: code } : {}),
+          error: SMS_MODE === "gateway" ? "telegram_failed" : "otp_failed",
+          ...(DEBUG_OTP ? { debug_code: code, debug_details: String(e?.message || e) } : {}),
         });
       }
 
