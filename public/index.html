@@ -627,7 +627,7 @@
       padding-right: 14px;
     }
 
-    .test-modal .modal-footer { flex-shrink: 0; }
+    .test-modal .modal-footer { flex-shrink: 0; gap: 10px; }
 
     .test-q { padding: 12px; border: 1px solid rgba(255,255,255,0.10); border-radius: 12px; margin-bottom: 10px; }
     .test-q-title { font-weight: 700; margin-bottom: 10px; }
@@ -646,7 +646,28 @@
       cursor: pointer;
     }
     .test-option span { flex: 1; text-align: left; }
-    .test-option input { margin: 0 0 0 12px; }
+        /* Контрольные элементы справа, без "синего прямоугольника" от глобального input-стайла */
+    .test-option input[type="radio"],
+    .test-option input[type="checkbox"] {
+      flex: 0 0 auto;
+      appearance: auto;
+      -webkit-appearance: auto;
+      width: 18px;
+      height: 18px;
+      margin: 0 0 0 12px;
+      padding: 0;
+      border: none !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      outline: none !important;
+    }
+    .test-option input[type="radio"]:focus,
+    .test-option input[type="checkbox"]:focus {
+      border: none !important;
+      box-shadow: none !important;
+      outline: none !important;
+    }
+    .test-option:focus-within { outline: none; }
 
     .test-option.correct { border-color: rgba(34,197,94,0.75); background: rgba(34,197,94,0.12); }
     .test-option.wrong { border-color: rgba(239,68,68,0.75); background: rgba(239,68,68,0.10); }
@@ -1134,6 +1155,12 @@
     testCloseX.addEventListener("click", closeTestModal);
     testCancelBtn.addEventListener("click", closeTestModal);
 
+    // Закрытие по клику на затемнение
+    testModal.addEventListener("click", (e) => {
+      if (e.target === testModal) closeTestModal();
+    });
+
+    // Закрытие по клику на затемнение (один раз, не внутри openTestModal)
     async function openTestModal(kind, gameId, nextHref) {
       hideTestError();
       hideTestScore();
@@ -1147,17 +1174,24 @@
       testTitle.textContent = isEntry ? `Входное тестирование — ${displayTitle}` : `Итоговое тестирование — ${displayTitle}`;
       testInfo.textContent = isEntry
         ? "Перед первой попыткой игры (в целях участия в исследовании проекта) нужно пройти входное тестирование. Его нельзя обойти — без него игра не начнётся."
-        : "Итоговое тестирование доступно после достижения порога звёзд. Выберите ответы и нажмите «Ответить».";
+        : "Итоговое тестирование доступно после достижения порога звёзд. Выберите ответы и нажмите «Ответить».";let getRes;
+try {
+  getRes = await PlatformApi.testGet(gameId, kind);
+} catch (e) {
+  console.error(e);
+  getRes = null;
+}
 
-      testModal.style.display = "";
-      testModal.classList.add("active");
+// Показываем модалку только после загрузки/рендера — так не будет "промежуточного" маленького окна
+function showTestModalNow() {
+  testModal.style.display = "";
+  testModal.classList.add("active");
+  const mb = testModal.querySelector(".modal-body");
+  if (mb) mb.scrollTop = 0;
+}
 
-      testModal.addEventListener("click", (e) => {
-        if (e.target === testModal) closeTestModal();
-      });
-
-      const getRes = await PlatformApi.testGet(gameId, kind);
-      if (!getRes || !getRes.ok) {
+if (!getRes || !getRes.ok) {
+        showTestModalNow();
         showTestError("Не удалось загрузить тест. Попробуйте ещё раз.");
         testSubmitBtn.disabled = false;
         testSubmitBtn.textContent = "Ответить";
@@ -1165,6 +1199,7 @@
       }
 
       if (getRes.done) {
+        showTestModalNow();
         showTestScore(`Тестирование уже пройдено: ${getRes.result?.score ?? "?"}/${getRes.result?.max_score ?? "?"}`);
         testSubmitBtn.textContent = isEntry ? "Перейти к игре" : "Закрыть";
         testSubmitBtn.disabled = false;
@@ -1183,6 +1218,7 @@
       const test = getRes.test;
       const qs = test?.questions || [];
       if (!qs.length) {
+        showTestModalNow();
         showTestError("В тесте нет вопросов.");
         testSubmitBtn.disabled = false;
         testSubmitBtn.textContent = "Ответить";
@@ -1232,6 +1268,8 @@
 
         testContent.appendChild(qWrap);
       }
+
+      showTestModalNow();
 
       // submit handler
       async function submit() {
