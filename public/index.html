@@ -1016,6 +1016,17 @@
       return (typeof max === "number" && max > 0) ? `${x}/${max}` : String(x);
     }
 
+    function maskPhoneForCabinet(phone) {
+      const digits = String(phone || "").replace(/\D/g, ""); // оставляем только цифры
+      if (!digits) return "";
+
+      // Берём последние 4 цифры (даже если формат вдруг не +7XXXXXXXXXX)
+      const last4 = digits.slice(-4);
+
+      // Требуемый формат: +7 + 6 звёзд + последние 4 цифры
+      return `+7******${last4}`;
+    }
+
     function showStep(step) {
       // step: checking | phone | code | profile | hidden
       authCard.style.display = (step === "hidden") ? "none" : "";
@@ -1036,7 +1047,7 @@
       authStatePill.classList.add("success");
       cabCard.style.display = "";
       helloPill.textContent = me.name ? `Привет, ${me.name}` : `Привет!`;
-      userPill.textContent = me.phone || "";
+      userPill.textContent = maskPhoneForCabinet(me.phone);
       renderGames(me.games || []);
     }
 
