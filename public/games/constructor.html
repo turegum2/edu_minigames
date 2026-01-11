@@ -628,12 +628,33 @@
 
   function draw_bond_on_field(b, highlight = false){
     const [x1, y1] = b.a.screen_pos(), [x2, y2] = b.b.screen_pos();
+    const lvl = current_level();
+    const v1 = get_valence(b.a.element, lvl);
+    const v2 = get_valence(b.b.element, lvl);
+    const c1 = count_bonds_for(b.a);
+    const c2 = count_bonds_for(b.b);
+
+    // Некорректно, если хотя бы один атом перегружен по валентности
+    // или если кратность больше 3 (четвёртая связь всегда “лишняя”)
+    const isInvalid = (c1 > v1) || (c2 > v2) || (b.order > 3);
+
     const dx = x2 - x1, dy = y2 - y1, length = Math.hypot(dx, dy);
     if (length === 0) return;
     const nx = -dy / length, ny = dx / length;
     const colors = [COLORS.bondSingle, COLORS.bondDouble, COLORS.bondTriple];
-    const base_col = highlight ? COLORS.bondHover : colors[Math.min(b.order - 1, 2)];
-    let offsets = b.order === 1 ? [0] : b.order === 2 ? [-4, 4] : [-6, 0, 6];
+
+    // Если связь “лишняя” — красим её в красный (все линии связи)
+    const base_col = isInvalid
+      ? COLORS.textError
+      : (highlight ? COLORS.bondHover : colors[Math.min(b.order - 1, 2)]);
+
+    // Оффсеты линий: 1..4
+    let offsets =
+      (b.order === 1) ? [0] :
+      (b.order === 2) ? [-4, 4] :
+      (b.order === 3) ? [-6, 0, 6] :
+      [-9, -3, 3, 9]; // order === 4
+
     ctx.save(); ctx.strokeStyle = base_col; ctx.lineWidth = 4; ctx.lineCap = 'round';
     ctx.shadowColor = 'rgba(0,0,0,0.2)'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 2;
     for (const off of offsets){ ctx.beginPath(); ctx.moveTo(x1 + nx * off, y1 + ny * off); ctx.lineTo(x2 + nx * off, y2 + ny * off); ctx.stroke(); }
@@ -843,10 +864,20 @@
     if (!(state === "play" || state === "win")) return;
     e.preventDefault();
     const b = bond_at_pos(pos[0], pos[1]);
-    if (b){ const lvl = current_level(), new_order = (b.order % 3) + 1, delta = new_order - b.order;
-      if (delta !== 0){ const v1 = get_valence(b.a.element, lvl), v2 = get_valence(b.b.element, lvl), c1 = count_bonds_for(b.a), c2 = count_bonds_for(b.b);
-        if (c1 + delta <= v1 && c2 + delta <= v2){ b.order = new_order; spawn_particles(...bond_midpoint(b), COLORS.particleBlue); moves_used += 1; }
-        else { set_feedback("Нельзя увеличить кратность.", "error"); }}}
+    if (b) {
+      // Вверх/вниз по колёсику: увеличиваем/уменьшаем кратность
+      const dir = (e.deltaY < 0) ? 1 : -1;
+
+      // Ограничение: 1..4 (без “зацикливания”)
+      const new_order = clamp(b.order + dir, 1, 4);
+
+      // Если уже упёрлись в 1 или 4 — ничего не делаем (и ничего не пишем внизу)
+      if (new_order !== b.order) {
+        b.order = new_order;
+        spawn_particles(...bond_midpoint(b), COLORS.particleBlue);
+        moves_used += 1;
+      }
+    }
   }, { passive: false });
 
   document.addEventListener("keydown", e => {
